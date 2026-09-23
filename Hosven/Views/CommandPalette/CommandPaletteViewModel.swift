@@ -113,8 +113,13 @@ final class CommandPaletteViewModel {
     private func buildUniverse() -> [PaletteCommand] {
         var commands: [PaletteCommand] = []
 
-        commands.append(OpenTabCommand(tab: .hosts))
-        commands.append(OpenTabCommand(tab: .env))
+        commands.append(OpenSelectionCommand(selection: .systemHosts, title: "Mở Hosts hệ thống", subtitle: "/etc/hosts", icon: "network"))
+        commands.append(OpenSelectionCommand(selection: .ports, title: "Mở Ports", subtitle: "Cổng đang bị chiếm", icon: "bolt.horizontal.circle"))
+        if let env = envManager {
+            for repo in env.repos {
+                commands.append(OpenSelectionCommand(selection: .repo(repo.id), title: "Mở repo \(repo.name)", subtitle: repo.path, icon: "folder"))
+            }
+        }
 
         if let hosts = hostsManager {
             for profile in hosts.profiles {

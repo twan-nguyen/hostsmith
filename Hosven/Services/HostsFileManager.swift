@@ -86,11 +86,34 @@ final class HostsFileManager {
     var hasUnsavedChanges: Bool {
         rawTextDirtyOverride || generateHostsContent() != pristineSerialized
     }
+
+    /// Drops every pending edit and returns to the last loaded or applied state.
+    func discardChanges() {
+        guard !originalContent.isEmpty else { return }
+        pushUndo()
+        parseHostsContent(originalContent)
+        captureClean()
+    }
+
+    /// Number of lines that differ between the last clean state and the current
+    /// serialization. Drives the "N chưa áp dụng" status pill.
+    var pendingChangeCount: Int {
+        let before = pristineSerialized.split(separator: "\n", omittingEmptySubsequences: false)
+        let after = generateHostsContent().split(separator: "\n", omittingEmptySubsequences: false)
+        let removed = Set(before).subtracting(after).count
+        let added = Set(after).subtracting(before).count
+        let diff = max(removed, added)
+        return diff == 0 && rawTextDirtyOverride ? 1 : diff
+    }
     var isSearchFocused = false
     /// Pending query pushed from the ⌘K palette. HostsView observes, applies to its
     /// own search field, then clears. Decouples palette from view-local @State.
     var pendingSearchQuery: String?
     var toast: ToastMessage?
+
+    /// Resolver check of the hostnames the last write changed. Cleared by the
+    /// next apply or when the user closes the banner.
+    var verification: HostsVerification?
 
     /// Profile metadata (color, shortcut) layered on top of tag-name markers in `/etc/hosts`.
     /// Synced with `tags` after every parse: new tags → unstyled profile (default color),
@@ -210,7 +233,7 @@ final class HostsFileManager {
             externalChangeDetected = false
             clearUndoStacks()
         } catch {
-            showToast("Không thể đọc file /etc/hosts: \(error.localizedDescription)", type: .error)
+            showToast("Không đọc được /etc/hosts: \(error.localizedDescription)", type: .error)
         }
     }
 
@@ -332,13 +355,10 @@ final class HostsFileManager {
     /// otherwise rotates through the palette based on existing profile count.
     private static func guessColor(for name: String, existing: [Profile]) -> ProfileColor {
         let key = name.lowercased()
-        if key.contains("release") { return .purple }
-        if key.contains("prod")    { return .green }
-        if key.contains("master")  { return .amber }
+        if key.contains("prod") { return .red }
+        if key.contains("staging") || key.contains("test") || key.contains("uat") { return .amber }
         if key.contains("dev") || key.contains("local") { return .blue }
-        if key.contains("test") || key.contains("staging") { return .red }
-        let palette = ProfileColor.allCases
-        return palette[existing.count % palette.count]
+        return .purple
     }
 
     // MARK: - Profile CRUD
@@ -367,6 +387,13 @@ final class HostsFileManager {
     func removeProfile(id: UUID) {
         profiles.removeAll { $0.id == id }
         if activeProfileID == id { activeProfileID = nil }
+        profileStore.save(profiles)
+    }
+
+    /// Change a profile's colour and persist it.
+    func updateProfileColor(id: UUID, color: ProfileColor) {
+        guard let idx = profiles.firstIndex(where: { $0.id == id }) else { return }
+        profiles[idx].color = color
         profileStore.save(profiles)
     }
 
@@ -479,18 +506,18 @@ final class HostsFileManager {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         guard !tags.contains(where: { $0.name.lowercased() == trimmed.lowercased() }) else {
-            showToast("Tag \"\(trimmed)\" đã tồn tại", type: .error)
+            showToast("Block \(trimmed) đã tồn tại", type: .error)
             return
         }
         tags.append(HostTag(name: trimmed))
-        showToast("Đã tạo tag \"\(trimmed)\"", type: .success)
+        showToast("Đã tạo block \(trimmed)", type: .success)
     }
 
     func renameTag(oldName: String, newName: String) {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         guard !tags.contains(where: { $0.name.lowercased() == trimmed.lowercased() }) else {
-            showToast("Tag \"\(trimmed)\" đã tồn tại", type: .error)
+            showToast("Block \(trimmed) đã tồn tại", type: .error)
             return
         }
         pushUndo()
@@ -503,7 +530,7 @@ final class HostsFileManager {
             updated[i].tag = trimmed
         }
         entries = updated
-        showToast("Đã đổi tên tag thành \"\(trimmed)\"", type: .success)
+        showToast("Đã đổi tên block thành \(trimmed)", type: .success)
     }
 
     func deleteTag(name: String) {
@@ -514,20 +541,32 @@ final class HostsFileManager {
             updated[i].tag = nil
         }
         entries = updated
-        showToast("Đã xóa tag \"\(name)\"", type: .success)
+        showToast("Đã xoá block \(name)", type: .success)
     }
 
     func toggleTag(name: String) {
-        pushUndo()
-        let state = tagState(name: name)
         // mixed or allEnabled → turn all off; allDisabled → turn all on
-        let newState = state == .allDisabled
+        setTagEnabled(name: name, enabled: tagState(name: name) == .allDisabled)
+    }
 
+    /// Enable or disable every entry in a block at once.
+    func setTagEnabled(name: String, enabled: Bool) {
+        pushUndo()
         var updated = entries
         for i in updated.indices where updated[i].tag == name {
-            updated[i].isEnabled = newState
+            updated[i].isEnabled = enabled
         }
         entries = updated
+    }
+
+    /// Activate a profile: make it the active one and enable every entry in its block.
+    /// Nothing reaches disk until `applyChanges()`.
+    func activateProfile(id: UUID) {
+        guard let profile = profiles.first(where: { $0.id == id }) else { return }
+        activeProfileID = id
+        if tagState(name: profile.name) != .allEnabled {
+            setTagEnabled(name: profile.name, enabled: true)
+        }
     }
 
     enum TagState {
@@ -641,7 +680,7 @@ final class HostsFileManager {
                 } else if status == errAuthorizationCanceled {
                     completion(false, nil) // User cancelled
                 } else {
-                    completion(false, "Lỗi xác thực (code: \(status))")
+                    completion(false, "quyền quản trị bị từ chối (mã \(status))")
                 }
             }
         }
@@ -651,18 +690,27 @@ final class HostsFileManager {
         "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 
-    func applyChanges() {
-        guard hasUnsavedChanges, !isApplying else { return }
+    /// Writes the current state to `/etc/hosts` through the privileged helper.
+    /// `completion` receives `(success, errorMessage)`; a cancelled prompt is
+    /// `(false, nil)`.
+    func applyChanges(completion: ((Bool, String?) -> Void)? = nil) {
+        guard hasUnsavedChanges, !isApplying else {
+            completion?(false, nil)
+            return
+        }
         isApplying = true
+        verification = nil
 
         let content = generateHostsContent()
+        let changedPairs = HostsVerification.changedPairs(old: pristineSerialized, new: content)
         let tempPath = NSTemporaryDirectory() + "hosts_\(UUID().uuidString)"
 
         do {
             try content.write(toFile: tempPath, atomically: true, encoding: .utf8)
         } catch {
             isApplying = false
-            showToast("Lỗi tạo file tạm: \(error.localizedDescription)", type: .error)
+            showToast("Không tạo được file tạm: \(error.localizedDescription)", type: .error)
+            completion?(false, error.localizedDescription)
             return
         }
 
@@ -681,10 +729,14 @@ final class HostsFileManager {
                 self.rawTextDirtyOverride = false
                 self.externalChangeDetected = false
                 self.redoStack.removeAll()  // post-apply redo would re-create stale state
-                self.showToast("Đã áp dụng thành công!", type: .success)
+                self.showToast("Đã ghi \(self.entries.count) entry vào /etc/hosts", type: .success)
+                if !changedPairs.isEmpty {
+                    Task { self.verification = await HostsVerification.run(changedPairs) }
+                }
             } else if let error = error {
-                self.showToast("Lỗi: \(error)", type: .error)
+                self.showToast("Không ghi được /etc/hosts: \(error)", type: .error)
             }
+            completion?(success, error)
             // Resume after a short delay — disk events trail the cp by a few ms.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 self.fileWatcher.resume()
@@ -709,7 +761,7 @@ final class HostsFileManager {
             try content.write(toFile: tempPath, atomically: true, encoding: .utf8)
         } catch {
             isApplying = false
-            showToast("Lỗi tạo file tạm: \(error.localizedDescription)", type: .error)
+            showToast("Không tạo được file tạm: \(error.localizedDescription)", type: .error)
             return
         }
 
@@ -726,9 +778,9 @@ final class HostsFileManager {
                 self.parseHostsContent(content)
                 self.captureClean()
                 self.externalChangeDetected = false
-                self.showToast("Đã áp dụng thành công!", type: .success)
+                self.showToast("Đã ghi \(self.entries.count) entry vào /etc/hosts", type: .success)
             } else if let error = error {
-                self.showToast("Lỗi: \(error)", type: .error)
+                self.showToast("Không ghi được /etc/hosts: \(error)", type: .error)
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 self.fileWatcher.resume()
@@ -742,9 +794,9 @@ final class HostsFileManager {
 
         runPrivilegedCommand(command) { [weak self] success, error in
             if success {
-                self?.showToast("Đã tạo backup: hosts.backup.\(timestamp)", type: .success)
+                self?.showToast("Đã tạo bản sao lưu /etc/hosts.backup.\(timestamp)", type: .success)
             } else if let error = error {
-                self?.showToast("Lỗi tạo backup: \(error)", type: .error)
+                self?.showToast("Không tạo được bản sao lưu: \(error)", type: .error)
             }
         }
     }
@@ -753,7 +805,7 @@ final class HostsFileManager {
         let content = generateHostsContent()
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(content, forType: .string)
-        showToast("Đã copy nội dung hosts vào clipboard", type: .success)
+        showToast("Đã sao chép \(entries.count) entry vào clipboard", type: .success)
     }
 
     func importEntries(from text: String) {
@@ -783,9 +835,9 @@ final class HostsFileManager {
         }
 
         if added > 0 {
-            showToast("Đã import \(added) entry mới", type: .success)
+            showToast("Đã nhập \(added) entry mới", type: .success)
         } else {
-            showToast("Không có entry mới để import", type: .info)
+            showToast("Không có entry mới để nhập", type: .info)
         }
     }
 

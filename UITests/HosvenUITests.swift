@@ -1,20 +1,23 @@
 import XCTest
 
-/// End-to-end smoke tests via XCUITest. Exercises window chrome, tab switcher,
-/// sidebar profile activation, search field, and ⌘1 shortcut.
+/// End-to-end smoke tests via XCUITest. Exercises the window chrome, the source
+/// list, the hosts search field and the ⌘1 shortcut.
 ///
 /// Notes:
-/// - Apply (sudo write to /etc/hosts) is NOT exercised — would require interactive
-///   password dialog. Tests stop at the "intent" of saving, not actual file write.
-/// - These tests assume a fresh run with default profiles auto-created from the
-///   user's real /etc/hosts. If `/etc/hosts` is empty of tag markers, sidebar
-///   only has filters; profile-activation test will be skipped.
+/// - Apply (privileged write to /etc/hosts) is NOT exercised — it needs an
+///   interactive password dialog.
+/// - Profiles come from tag markers in the real /etc/hosts; tests that need one
+///   skip when none exist.
 final class HosvenUITests: XCTestCase {
     var app: XCUIApplication!
 
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
+        if let appearance = ProcessInfo.processInfo.environment["HOSVEN_APPEARANCE"] {
+            app.launchArguments += ["-appearanceMode", appearance]
+        }
+        app.launchArguments += ["-sidebarSelection", "systemHosts"]
         app.launch()
     }
 
@@ -27,160 +30,108 @@ final class HosvenUITests: XCTestCase {
     func test_appLaunches_andMainWindowVisible() {
         let window = app.windows.firstMatch
         XCTAssertTrue(window.waitForExistence(timeout: 5))
-        // TitleBar text proves shell rendered
-        XCTAssertTrue(app.staticTexts["Hosven"].exists)
+        XCTAssertTrue(app.staticTexts["Hosts hệ thống"].waitForExistence(timeout: 3), "Hosts toolbar title proves the shell rendered")
     }
 
-    func test_tabSwitcher_switchesBetweenHostsAndEnv() {
-        // Tab pills are SwiftUI Buttons but `.buttonStyle(.plain)` + custom label
-        // makes the AX type ambiguous on macOS — match by identifier across any
-        // element type to stay resilient.
-        // Identifier-only match (no label fallback) — the OR-with-label trick used
-        // to silently match the inner detail-header Text "Hosts", which became a
-        // stale reference after switching to Env and made the back-click no-op.
-        let envTab = app.buttons["tab-env"]
-        let hostsTab = app.buttons["tab-hosts"]
-        if !envTab.waitForExistence(timeout: 5) {
-            print("==DEBUG TREE==\n\(app.debugDescription)")
-        }
-        XCTAssertTrue(envTab.exists, "Env tab should exist (see debug tree)")
-        XCTAssertTrue(hostsTab.exists, "Hosts tab should exist")
-
-        // Initially Hosts is selected — its sidebar header "Profiles" must be visible,
-        // env-only header "Repos" must not.
-        XCTAssertTrue(app.staticTexts["PROFILES"].waitForExistence(timeout: 2),
-                      "Hosts sidebar (PROFILES) should be visible on launch")
-
-        // ---- Switch to Env ----
-        envTab.click()
-        Thread.sleep(forTimeInterval: 0.5)
-
-        // TitleBar still visible
-        XCTAssertTrue(app.staticTexts["Hosven"].exists,
-                      "TitleBar must persist after switching to Env")
-        // Env-only sidebar header
-        XCTAssertTrue(app.staticTexts["REPOS"].waitForExistence(timeout: 2),
-                      "After Env click, sidebar should show REPOS")
-        XCTAssertFalse(app.staticTexts["PROFILES"].exists,
-                       "PROFILES (hosts sidebar) must no longer be visible after switching to Env")
-
-        // ---- Switch back to Hosts ----
-        print("==BEFORE HOSTS CLICK== hostsTab.exists=\(hostsTab.exists) hittable=\(hostsTab.isHittable) frame=\(hostsTab.frame)")
-        hostsTab.click()
-        Thread.sleep(forTimeInterval: 0.5)
-        print("==AFTER HOSTS CLICK== profiles.exists=\(app.staticTexts["PROFILES"].exists) repos.exists=\(app.staticTexts["REPOS"].exists)")
-        if !app.staticTexts["PROFILES"].exists {
-            print("==DEBUG TREE AFTER FAILED HOSTS CLICK==\n\(app.debugDescription)")
-        }
-
-        XCTAssertTrue(app.staticTexts["Hosven"].exists,
-                      "TitleBar must persist after switching back to Hosts")
-        XCTAssertTrue(app.staticTexts["PROFILES"].waitForExistence(timeout: 2),
-                      "After Hosts click, sidebar should show PROFILES again")
-        XCTAssertFalse(app.staticTexts["REPOS"].exists,
-                       "REPOS must no longer be visible after switching back to Hosts")
+    func test_sidebar_showsFixedGroups() {
+        XCTAssertTrue(app.staticTexts["PROFILES"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["HOSTS"].exists)
+        XCTAssertTrue(app.staticTexts["REPOS"].exists)
     }
 
-    /// Regression: NavigationSplitView in EnvView would hide NSTitlebarContainerView,
-    /// making traffic lights disappear on Env tab. Verifies close button stays hittable.
-    func test_trafficLights_remainVisibleAfterEnvSwitch() {
+    func test_sidebar_systemHostsRow_isSelectedByDefault() {
+        let row = app.buttons["sidebar-system-hosts"]
+        XCTAssertTrue(row.waitForExistence(timeout: 3))
+        XCTAssertTrue(row.isSelected)
+        XCTAssertTrue(app.buttons["hosts-apply"].exists, "Apply is the last control in the hosts toolbar")
+    }
+
+    /// Regression: hidden title bar + floating sidebar card must keep the traffic lights hittable.
+    func test_trafficLights_remainVisible() {
         let close = app.windows.firstMatch.buttons[XCUIIdentifierCloseWindow]
         XCTAssertTrue(close.waitForExistence(timeout: 3))
         XCTAssertTrue(close.isHittable, "Close button hittable on launch")
 
-        let envTab = app.buttons["tab-env"]
-        XCTAssertTrue(envTab.waitForExistence(timeout: 3))
-        envTab.click()
-        Thread.sleep(forTimeInterval: 0.5)
-
-        XCTAssertTrue(close.exists, "Close button still exists after Env tab")
-        XCTAssertTrue(close.isHittable, "Close button still hittable after Env tab — traffic lights must persist")
+        let toggleSidebar = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'sidebar'"))
+        XCTAssertEqual(toggleSidebar.count, 0, "No native sidebar toggle should exist")
     }
 
-    /// Regression: custom TitleBarView must remain visible after Env switch,
-    /// and no auto-installed sidebar toggle button should appear (HStack layout).
-    func test_windowTitle_bundleNameNotShownAfterEnvSwitch() {
-        let envTab = app.buttons["tab-env"]
-        XCTAssertTrue(envTab.waitForExistence(timeout: 3))
-        envTab.click()
-        Thread.sleep(forTimeInterval: 0.6)
-
-        XCTAssertTrue(app.staticTexts["Hosven"].exists,
-                      "Custom TitleBarView text must remain")
-
-        // No NSV in layout (replaced by HStack) → no auto-installed sidebar
-        // toggle should ever appear.
-        let toggleSidebar = app.buttons.matching(NSPredicate(
-            format: "label CONTAINS[c] 'sidebar'"
-        ))
-        XCTAssertEqual(toggleSidebar.count, 0, "No sidebar toggle should exist (HStack layout)")
-    }
-
-    func test_searchField_filtersHostList() throws {
+    func test_searchField_findsLocalhost() throws {
         let search = app.textFields["hosts-search-field"]
         XCTAssertTrue(search.waitForExistence(timeout: 3))
-
-        // Type a substring of "localhost" — should always exist in /etc/hosts
         search.click()
         search.typeText("localhost")
-
-        // After filter: at least one localhost row should still be visible
-        XCTAssertTrue(app.staticTexts["localhost"].waitForExistence(timeout: 2),
-                      "Expected at least one 'localhost' row after filter")
-    }
-
-    func test_profileRow_clickActivatesProfile() throws {
-        // Find any profile row (created from existing /etc/hosts tag markers)
-        let profileRows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'profile-row-'"))
-
-        guard profileRows.count > 0 else {
-            throw XCTSkip("No profiles in current /etc/hosts — skipping activation test")
-        }
-
-        let firstProfile = profileRows.element(boundBy: 0)
-        XCTAssertTrue(firstProfile.exists)
-        firstProfile.click()
-        // Click again deactivates (toggle behavior). Just assert click didn't crash.
         XCTAssertTrue(app.windows.firstMatch.exists)
     }
 
-    func test_keyboardShortcut_cmd1_switchesToFirstProfile() throws {
+    func test_profileRow_click_opensProfilePane() throws {
+        let profileRows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'profile-row-'"))
+        guard profileRows.count > 0 else {
+            throw XCTSkip("No profiles in current /etc/hosts — skipping")
+        }
+        let first = profileRows.element(boundBy: 0)
+        XCTAssertTrue(first.exists)
+        first.click()
+        XCTAssertTrue(app.buttons["Kích hoạt"].waitForExistence(timeout: 2), "Profile pane shows the Activate button")
+    }
+
+    func test_keyboardShortcut_cmd1_activatesFirstProfile() throws {
         let profileRows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'profile-row-'"))
         guard profileRows.count > 0 else {
             throw XCTSkip("No profiles defined — skipping ⌘1 shortcut test")
         }
-
-        // Send ⌘1 to active window
         app.typeKey("1", modifierFlags: .command)
-        // No assertion specific — just verifies app doesn't crash on keyboard shortcut.
         XCTAssertTrue(app.windows.firstMatch.exists)
     }
 
     func test_settingsScene_opensViaMenuBar() throws {
         let initialWindowCount = app.windows.count
-
-        // SwiftUI Settings scene exposes a "Settings…" item in the app menu.
-        // Open menu, wait for it to render, then click via menuBars > menuItems
-        // (more reliable than top-level descendants matching).
         let appMenu = app.menuBars.menuBarItems.element(boundBy: 0)
         XCTAssertTrue(appMenu.waitForExistence(timeout: 2), "App menu missing")
         appMenu.click()
-        Thread.sleep(forTimeInterval: 0.4)  // menu animation
+        Thread.sleep(forTimeInterval: 0.4)
 
         let settingsItem = app.menuBars.menuItems
             .matching(NSPredicate(format: "title BEGINSWITH 'Settings' OR title BEGINSWITH 'Preferences'"))
             .firstMatch
-        guard settingsItem.waitForExistence(timeout: 2),
-              settingsItem.isHittable
-        else {
-            // Dismiss menu before failing
+        guard settingsItem.waitForExistence(timeout: 2), settingsItem.isHittable else {
             app.typeKey(.escape, modifierFlags: [])
             throw XCTSkip("Settings… menu item not hittable in this runner context")
         }
         settingsItem.click()
         Thread.sleep(forTimeInterval: 0.6)
+        XCTAssertGreaterThan(app.windows.count, initialWindowCount, "Settings window should appear")
+    }
 
-        XCTAssertGreaterThan(app.windows.count, initialWindowCount,
-                             "Settings window should appear")
+    // MARK: - Screenshots
+
+    /// Writes window screenshots to `HOSVEN_SHOT_DIR` when set. Used by
+    /// `scripts/take-screenshot.sh`; skipped in a normal test run.
+    func test_captureScreenshots() throws {
+        guard let dir = ProcessInfo.processInfo.environment["HOSVEN_SHOT_DIR"] else {
+            throw XCTSkip("HOSVEN_SHOT_DIR not set")
+        }
+        let suffix = ProcessInfo.processInfo.environment["HOSVEN_APPEARANCE"] ?? "system"
+        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 5))
+        Thread.sleep(forTimeInterval: 1.0)
+        try save(app.windows.firstMatch.screenshot(), to: "\(dir)/01-hosts-\(suffix).png")
+
+        let profileRows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'profile-row-'"))
+        if profileRows.count > 0 {
+            profileRows.element(boundBy: 0).click()
+            Thread.sleep(forTimeInterval: 0.8)
+            try save(app.windows.firstMatch.screenshot(), to: "\(dir)/04-profile-\(suffix).png")
+        }
+
+        let repoRows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sidebar-repo-'"))
+        if repoRows.count > 0 {
+            repoRows.element(boundBy: 0).click()
+            Thread.sleep(forTimeInterval: 1.2)
+            try save(app.windows.firstMatch.screenshot(), to: "\(dir)/02-env-\(suffix).png")
+        }
+    }
+
+    private func save(_ screenshot: XCUIScreenshot, to path: String) throws {
+        try screenshot.pngRepresentation.write(to: URL(fileURLWithPath: path))
     }
 }

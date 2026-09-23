@@ -6,7 +6,7 @@ struct CommandPaletteView: View {
     @Environment(HostsFileManager.self) private var hostsManager
     @Environment(EnvFileManager.self) private var envManager
 
-    let switchTab: (AppTab) -> Void
+    let select: (AppSidebarSelection) -> Void
 
     @State private var viewModel = CommandPaletteViewModel()
     @State private var keyMonitor: Any?
@@ -15,7 +15,7 @@ struct CommandPaletteView: View {
     var body: some View {
         ZStack {
             // Click-outside to dismiss.
-            Color.black.opacity(0.35)
+            DS.Colors.surfaceScrim
                 .ignoresSafeArea()
                 .onTapGesture { dismiss() }
 
@@ -24,7 +24,7 @@ struct CommandPaletteView: View {
                 .padding(.top, 60)
                 .frame(maxHeight: .infinity, alignment: .top)
         }
-        .transition(.opacity.combined(with: .scale(scale: 0.97)))
+        .transition(.opacity.combined(with: .scale(scale: 0.96)))
         .onAppear {
             viewModel.bind(hosts: hostsManager, env: envManager)
             queryFocused = true
@@ -60,7 +60,7 @@ struct CommandPaletteView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
 
-            Divider().background(Color.dsBorderTertiary)
+            Color.clear.frame(height: 0).dsHairline(.bottom)
 
             if viewModel.flat.isEmpty {
                 emptyState
@@ -68,34 +68,26 @@ struct CommandPaletteView: View {
                 resultsList
             }
         }
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.ultraThinMaterial)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.dsBorderPrimary, lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.4), radius: 24, y: 8)
+        .dsPopoverSurface(radius: DS.Radius.lg)
     }
 
     private var searchField: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color.dsTextSecondary)
+                .foregroundStyle(DS.Colors.inkSecondary)
 
-            TextField("Tìm host hoặc lệnh…", text: $viewModel.query)
+            TextField("", text: $viewModel.query, prompt: Text("Tìm host, repo hoặc lệnh").foregroundStyle(DS.Colors.inkTertiary))
                 .textFieldStyle(.plain)
                 .font(.system(size: 14))
-                .foregroundStyle(Color.dsTextPrimary)
+                .foregroundStyle(DS.Colors.inkPrimary)
                 .focused($queryFocused)
                 .onSubmit { execute() }
 
             Button(action: dismiss) {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 13))
-                    .foregroundStyle(Color.dsTextTertiary)
+                    .foregroundStyle(DS.Colors.inkTertiary)
             }
             .buttonStyle(.plain)
             .opacity(viewModel.query.isEmpty ? 0 : 1)
@@ -128,27 +120,25 @@ struct CommandPaletteView: View {
             .frame(maxHeight: 380)
             .onChange(of: viewModel.selectedIndex) { _, _ in
                 if let cmd = viewModel.selectedCommand {
-                    withAnimation(.dsSnappy) {
-                        proxy.scrollTo(cmd.id, anchor: .center)
-                    }
+                    proxy.scrollTo(cmd.id, anchor: .center)
                 }
             }
         }
     }
 
     private func sectionHeader(_ title: String) -> some View {
-        Text(title.uppercased())
-            .font(.system(size: 9.5, weight: .semibold))
-            .foregroundStyle(Color.dsTextTertiary)
-            .padding(.horizontal, 10)
-            .padding(.top, 6)
-            .padding(.bottom, 2)
+        Text(title)
+            .font(DS.Text.textMenuLabel)
+            .foregroundStyle(DS.Colors.inkSecondary)
+            .padding(.horizontal, DS.Spacing.space5)
+            .padding(.top, DS.Spacing.space5)
+            .padding(.bottom, DS.Spacing.space2)
     }
 
     private var emptyState: some View {
-        Text("Không tìm thấy kết quả")
-            .font(.system(size: 12))
-            .foregroundStyle(Color.dsTextSecondary)
+        Text("Không có kết quả")
+            .font(DS.Text.textCallout)
+            .foregroundStyle(DS.Colors.inkSecondary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 28)
     }
@@ -164,7 +154,7 @@ struct CommandPaletteView: View {
         let context = PaletteContext(
             hostsManager: hostsManager,
             envManager: envManager,
-            switchTab: switchTab,
+            select: select,
             dismiss: { dismiss() }
         )
         cmd.execute(in: context)

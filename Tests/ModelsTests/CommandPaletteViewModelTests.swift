@@ -40,10 +40,10 @@ struct CommandPaletteViewModelTests {
         #expect(!vm.flat.isEmpty)
     }
 
-    @Test("Empty query lists all profiles + clear + tab commands")
+    @Test("Empty query lists all profiles + clear + open system hosts + open ports")
     func emptyQueryUniverseSize() {
         let (vm, _) = makeVM()
-        // 3 default profiles + 1 clear + 2 open-tab = 6
+        // 3 default profiles + 1 clear + open system hosts + open ports (no repos) = 6
         #expect(vm.flat.count == 6)
     }
 
@@ -67,11 +67,11 @@ struct CommandPaletteViewModelTests {
         #expect(vm.flat.contains { $0 is SearchInEnvCommand })
     }
 
-    @Test("Query 'env' surfaces Open Env tab suggestion")
-    func querySurfacesTab() {
+    @Test("Query 'hosts' surfaces the open system hosts suggestion")
+    func querySurfacesOpenSelection() {
         let (vm, _) = makeVM()
-        vm.query = "env"
-        #expect(vm.flat.contains { $0 is OpenTabCommand })
+        vm.query = "hosts"
+        #expect(vm.flat.contains { ($0 as? OpenSelectionCommand)?.selection == .systemHosts })
     }
 
     // MARK: - Selection
@@ -158,16 +158,16 @@ struct CommandPaletteViewModelTests {
         let (hosts, env) = makeManagers()
         let cmd = SearchInHostsCommand(query: "myhost")
         var dismissed = false
-        var tab: AppTab?
+        var selected: AppSidebarSelection?
         let ctx = PaletteContext(
             hostsManager: hosts,
             envManager: env,
-            switchTab: { tab = $0 },
+            select: { selected = $0 },
             dismiss: { dismissed = true }
         )
         cmd.execute(in: ctx)
         #expect(hosts.pendingSearchQuery == "myhost")
-        #expect(tab == .hosts)
+        #expect(selected == .systemHosts)
         #expect(dismissed)
     }
 
@@ -176,16 +176,14 @@ struct CommandPaletteViewModelTests {
         let (hosts, env) = makeManagers()
         let cmd = SearchInEnvCommand(query: "API_KEY")
         var dismissed = false
-        var tab: AppTab?
         let ctx = PaletteContext(
             hostsManager: hosts,
             envManager: env,
-            switchTab: { tab = $0 },
+            select: { _ in },
             dismiss: { dismissed = true }
         )
         cmd.execute(in: ctx)
         #expect(env.pendingSearchQuery == "API_KEY")
-        #expect(tab == .env)
         #expect(dismissed)
     }
 

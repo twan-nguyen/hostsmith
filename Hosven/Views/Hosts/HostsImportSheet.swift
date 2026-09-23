@@ -7,42 +7,25 @@ struct ImportSheet: View {
 
     var body: some View {
         DSSheetContainer(
-            title: "Import Entries",
-            subtitle: "Paste nội dung file hosts vào đây. Chỉ các entry chưa tồn tại mới được thêm.",
+            title: "Nhập entry",
+            subtitle: "Dán nội dung dạng hosts. Chỉ những hostname chưa có mới được thêm.",
             bodyContent: {
-                VStack(alignment: .leading, spacing: DSSpacing.p2) {
-                    Text("Nội dung")
-                        .font(.dsLabel)
-                        .foregroundStyle(Color.dsTextSecondary)
-
-                    TextEditor(text: $importText)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(Color.dsTextPrimary)
-                        .scrollContentBackground(.hidden)
-                        .padding(8)
-                        .frame(minHeight: 220)
-                        .background(Color.white.opacity(0.04))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: DSRadius.md)
-                                .stroke(Color.dsBorderPrimary, lineWidth: 1)
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: DSRadius.md))
-                }
+                CodeEditor(text: $importText, language: .hosts)
+                    .frame(minHeight: 240)
+                    .dsContentCard()
             },
             footer: {
-                HStack {
-                    Button("Hủy") { dismiss() }
-                        .keyboardShortcut(.escape)
-                    Spacer()
-                    Button("Import") {
-                        hostsManager.importEntries(from: importText)
-                        dismiss()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("Huỷ") { dismiss() }
+                    .buttonStyle(.ds(.bordered, size: .lg))
+                    .keyboardShortcut(.escape)
+                Button("Nhập entry") {
+                    hostsManager.importEntries(from: importText)
+                    dismiss()
                 }
+                .buttonStyle(.ds(.primary, size: .lg))
+                .disabled(importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         )
-        .frame(width: 540)
+        .frame(width: 560)
     }
 }

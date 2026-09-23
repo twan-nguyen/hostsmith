@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 
 /// Reaches up to the hosting NSWindow once it exists and applies our custom chrome:
-/// transparent title bar, full-size content view, traffic lights overlaid on our
-/// TitleBarView gradient. This must run from inside the SwiftUI view tree (not
+/// transparent title bar, full-size content view, traffic lights centred in the
+/// `titleStripHeight` strip at the top of the sidebar. This must run from inside the SwiftUI view tree (not
 /// AppDelegate) because NSApp.windows iteration at didFinishLaunching can miss
 /// the WindowGroup window — viewDidMoveToWindow is the reliable hook.
 struct WindowChromeConfigurator: NSViewRepresentable {
@@ -13,6 +13,13 @@ struct WindowChromeConfigurator: NSViewRepresentable {
     /// Apply our custom chrome to `window`. Exposed for tests.
     /// Only sets fields whose value differs from desired — re-applying otherwise
     /// drops pending click events.
+    /// The strip at the top of the sidebar that holds the traffic lights.
+    static let titleStripHeight: CGFloat = 40
+    /// Traffic-light centre from the window's top-left: vertically centred in the strip,
+    /// the close button starting at the sidebar's `space6` inset as the screens draw it.
+    static let trafficLightCenter = NSPoint(x: DS.Spacing.space6 + 6, y: titleStripHeight / 2)
+    private static let trafficLightSpacing: CGFloat = 20
+
     static func configure(_ window: NSWindow) {
         let desiredMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         if window.styleMask != desiredMask {
@@ -26,6 +33,24 @@ struct WindowChromeConfigurator: NSViewRepresentable {
         if window.isMovableByWindowBackground { window.isMovableByWindowBackground = false }
         if window.toolbar != nil { window.toolbar = nil }
         ensureTitlebarVisible(window)
+        layoutTrafficLights(window)
+    }
+
+    /// Moves the three standard buttons to `trafficLightCenter`. AppKit resets their
+    /// frames on layout, so callers re-run this from resize and frame observers.
+    static func layoutTrafficLights(_ window: NSWindow) {
+        let types: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
+        for (index, type) in types.enumerated() {
+            guard let button = window.standardWindowButton(type), let superview = button.superview else { continue }
+            let size = button.frame.size
+            let x = trafficLightCenter.x + CGFloat(index) * trafficLightSpacing - size.width / 2
+            let yFromTop = trafficLightCenter.y - size.height / 2
+            let y = superview.isFlipped ? yFromTop : superview.bounds.height - yFromTop - size.height
+            let origin = NSPoint(x: x, y: y)
+            if abs(button.frame.origin.x - origin.x) > 0.5 || abs(button.frame.origin.y - origin.y) > 0.5 {
+                button.setFrameOrigin(origin)
+            }
+        }
     }
 
     /// Lightweight re-assertion of titlebar visibility (no styleMask reset).
@@ -49,6 +74,8 @@ struct WindowChromeConfigurator: NSViewRepresentable {
         private var keyObserver: NSObjectProtocol?
         private var hiddenKVO: NSKeyValueObservation?
         private var alphaKVO: NSKeyValueObservation?
+        private var frameKVO: NSKeyValueObservation?
+        private var resizeObserver: NSObjectProtocol?
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -64,6 +91,25 @@ struct WindowChromeConfigurator: NSViewRepresentable {
             ) { [weak window] _ in
                 guard let window else { return }
                 WindowChromeConfigurator.configure(window)
+            }
+
+            resizeObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didResizeNotification,
+                object: window,
+                queue: .main
+            ) { [weak window] _ in
+                guard let window else { return }
+                WindowChromeConfigurator.layoutTrafficLights(window)
+            }
+            if let close = window.standardWindowButton(.closeButton) {
+                frameKVO = close.observe(\.frame, options: [.new]) { [weak window] _, _ in
+                    guard let window else { return }
+                    WindowChromeConfigurator.layoutTrafficLights(window)
+                }
+            }
+            DispatchQueue.main.async { [weak window] in
+                guard let window else { return }
+                WindowChromeConfigurator.layoutTrafficLights(window)
             }
 
             // KVO on NSTitlebarContainerView's isHidden + alphaValue: NavigationSplitView
@@ -88,8 +134,13 @@ struct WindowChromeConfigurator: NSViewRepresentable {
                 NotificationCenter.default.removeObserver(keyObserver)
                 self.keyObserver = nil
             }
+            if let resizeObserver {
+                NotificationCenter.default.removeObserver(resizeObserver)
+                self.resizeObserver = nil
+            }
             hiddenKVO?.invalidate(); hiddenKVO = nil
             alphaKVO?.invalidate(); alphaKVO = nil
+            frameKVO?.invalidate(); frameKVO = nil
         }
 
         deinit { detachObservers() }

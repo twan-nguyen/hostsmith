@@ -1,71 +1,180 @@
 import SwiftUI
 
-/// Top-level window chrome wrapping the existing Hosts/Env content views.
-/// Layout (top→bottom): TitleBar → Breadcrumb → content → StatusBar.
-/// Reference: docs/mockup-reference.md → "Layout hierarchy".
+/// The window: a flat `surfaceSidebar` source list with a hairline on its
+/// trailing edge, and the working pane on the ivory ground beside it.
+/// The traffic lights sit in the sidebar's top strip; when the sidebar is
+/// hidden, the pane leaves that strip free above its toolbar.
 struct MainWindowView: View {
     @Environment(HostsFileManager.self) private var hostsManager
     @Environment(EnvFileManager.self) private var envManager
-    @State private var selectedTab: AppTab = .hosts
-    @State private var showCommandPalette: Bool = false
+    @AppStorage("sidebarSelection") private var selectionRaw: String = AppSidebarSelection.systemHosts.rawValue
+    @AppStorage("sidebarWidth") private var sidebarWidth: Double = Double(DS.Size.sidebarWidth)
+    @AppStorage("sidebarCollapsed") private var sidebarCollapsed = false
     @AppStorage("appearanceMode") private var appearanceRaw: String = AppearanceMode.system.rawValue
+    @State private var showCommandPalette = false
+    @State private var dragStartWidth: Double?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var appearance: AppearanceMode {
         AppearanceMode(rawValue: appearanceRaw) ?? .system
     }
 
+    private var selection: Binding<AppSidebarSelection> {
+        Binding(
+            get: { AppSidebarSelection(rawValue: selectionRaw) ?? .systemHosts },
+            set: { selectionRaw = $0.rawValue }
+        )
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            TitleBarView(
-                selectedTab: $selectedTab,
-                hostsCount: hostsManager.entries.count,
-                envCount: envEntryCount,
-                onSearch: { hostsManager.isSearchFocused = true }
-            )
+        ZStack {
+            DS.Colors.surfaceWindow.ignoresSafeArea()
 
-            BreadcrumbView(
-                activeTab: selectedTab,
-                activeProfile: activeProfile,
-                pendingChanges: pendingChanges,
-                sudoOK: false,  // wired in v2.1 with SudoCoordinator
-                externalChangeDetected: hostsManager.externalChangeDetected,
-                onReloadFromDisk: { hostsManager.loadHostsFile() }
-            )
+            HStack(spacing: 0) {
+                if !sidebarCollapsed {
+                    SidebarView(selection: selection)
+                        .frame(width: sidebarWidth)
+                        .dsHairline(.trailing)
+                        .overlay(alignment: .trailing) { resizeHandle }
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                }
 
-            content
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            StatusBarView(
-                activeTab: selectedTab,
-                pendingChanges: pendingChanges,
-                isApplying: hostsManager.isApplying,
-                sudoOK: false,  // wired in v2.1 with SudoCoordinator session cache
-                canUndo: canUndoForTab,
-                canRedo: canRedoForTab,
-                onUndo: handleUndo,
-                onRedo: handleRedo,
-                onApply: handleApply
-            )
+                pane
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.top, sidebarCollapsed ? WindowChromeConfigurator.titleStripHeight : 0)
+            }
+            .animation(reduceMotion ? nil : .dsSheet, value: sidebarCollapsed)
         }
-        .background(Color.dsBackground)
+        .overlay(alignment: .topLeading) { sidebarToggle }
+        .ignoresSafeArea()
+        .onOpenURL { url in handle(url) }
         .preferredColorScheme(appearance.colorScheme)
-        .environment(\.isActiveTab, true)
         .background(WindowChromeConfigurator())
         .background(commandPaletteShortcut)
         .overlay(alignment: .top) {
             if showCommandPalette {
-                CommandPaletteView(
-                    isPresented: $showCommandPalette,
-                    switchTab: { selectedTab = $0 }
-                )
-                .zIndex(100)
+                CommandPaletteView(isPresented: $showCommandPalette, select: { selection.wrappedValue = $0 })
+                    .zIndex(100)
             }
         }
-        .animation(reduceMotion ? nil : .dsSnappy, value: showCommandPalette)
+        .animation(reduceMotion ? nil : .dsPopover, value: showCommandPalette)
     }
 
-    /// Invisible button hosting the ⌘K shortcut. Placed in `.background` so
-    /// it captures the keystroke without affecting layout.
+    // MARK: - URL scheme
+
+    private func handle(_ url: URL) {
+        NSApp.activate(ignoringOtherApps: true)
+        guard let command = URLCommand(url: url) else {
+            hostsManager.showToast("Không hiểu lệnh \(url.absoluteString)", type: .error)
+            return
+        }
+        switch command {
+        case .activate(let name):
+            guard let profile = hostsManager.profiles.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) else {
+                hostsManager.showToast("Không có profile tên \(name)", type: .error)
+                return
+            }
+            selection.wrappedValue = .profile(profile.id)
+            hostsManager.activateProfile(id: profile.id)
+            hostsManager.applyChanges()
+        case .deactivate:
+            selection.wrappedValue = .systemHosts
+            hostsManager.switchProfile(to: nil)
+        case .applyEnvProfile(let repoName, let profileName):
+            guard let repo = envManager.repos.first(where: { $0.name.caseInsensitiveCompare(repoName) == .orderedSame }) else {
+                hostsManager.showToast("Không có repo tên \(repoName)", type: .error)
+                return
+            }
+            selection.wrappedValue = .repo(repo.id)
+            guard let profile = repo.profiles.first(where: { $0.name.caseInsensitiveCompare(profileName) == .orderedSame }) else {
+                envManager.showToast("Repo \(repo.name) không có profile tên \(profileName)", type: .error)
+                return
+            }
+            do {
+                try envManager.applyProfile(repoId: repo.id, profileId: profile.id)
+            } catch {
+                envManager.showToast("Không áp dụng được profile: \(error.localizedDescription)", type: .error)
+            }
+        case .open(let repoName):
+            guard let repo = envManager.repos.first(where: { $0.name.caseInsensitiveCompare(repoName) == .orderedSame }) else {
+                hostsManager.showToast("Không có repo tên \(repoName)", type: .error)
+                return
+            }
+            selection.wrappedValue = .repo(repo.id)
+        case .ports:
+            selection.wrappedValue = .ports
+        }
+    }
+
+    // MARK: - Pane routing
+
+    @ViewBuilder
+    private var pane: some View {
+        switch selection.wrappedValue {
+        case .systemHosts:
+            HostsPane(focusTag: nil)
+        case .hostsTag(let name):
+            HostsPane(focusTag: name)
+        case .profile(let id):
+            if hostsManager.profiles.contains(where: { $0.id == id }) {
+                ProfilePane(profileId: id, select: { selection.wrappedValue = $0 })
+            } else {
+                HostsPane(focusTag: nil)
+            }
+        case .repo(let id):
+            EnvPane(repoId: id, filePath: nil, select: { selection.wrappedValue = $0 })
+        case .envFile(let repoId, let path):
+            EnvPane(repoId: repoId, filePath: path, select: { selection.wrappedValue = $0 })
+        case .ports:
+            PortsPane()
+        }
+    }
+
+    // MARK: - Sidebar toggle and resize
+
+    /// Sits in the title strip after the traffic lights, in the sidebar's top
+    /// strip when it is shown and above the pane when it is hidden.
+    private var sidebarToggle: some View {
+        Button {
+            sidebarCollapsed.toggle()
+        } label: {
+            Image(systemName: "sidebar.leading")
+                .font(.system(size: 14, weight: .medium))
+                .frame(width: 20)
+        }
+        .buttonStyle(.ds(.plain, size: .sm))
+        .help(sidebarCollapsed ? "Hiện thanh bên (⌃⌘S)" : "Ẩn thanh bên (⌃⌘S)")
+        .accessibilityLabel(sidebarCollapsed ? "Hiện thanh bên" : "Ẩn thanh bên")
+        .padding(.leading, WindowChromeConfigurator.trafficLightCenter.x + 56)
+        .padding(.top, WindowChromeConfigurator.titleStripHeight / 2 - DS.Size.controlHeightSm / 2)
+    }
+
+    /// Invisible strip on the sidebar's trailing edge; resizes 200–320pt and remembers the width.
+    private var resizeHandle: some View {
+        Color.clear
+            .frame(width: 8)
+            .contentShape(Rectangle())
+            .onHover { inside in
+                if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { value in
+                        if dragStartWidth == nil { dragStartWidth = sidebarWidth }
+                        let proposed = (dragStartWidth ?? sidebarWidth) + value.translation.width
+                        sidebarWidth = min(320, max(200, proposed))
+                    }
+                    .onEnded { value in
+                        // Dragging well past the minimum collapses the column instead of squeezing it.
+                        if (dragStartWidth ?? sidebarWidth) + value.translation.width < 140 {
+                            sidebarCollapsed = true
+                        }
+                        dragStartWidth = nil
+                    }
+            )
+    }
+
+    /// Invisible button hosting the ⌘K shortcut.
     private var commandPaletteShortcut: some View {
         Button {
             showCommandPalette.toggle()
@@ -76,73 +185,4 @@ struct MainWindowView: View {
         .keyboardShortcut("k", modifiers: .command)
         .accessibilityHidden(true)
     }
-
-    // MARK: - Content routing
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    @ViewBuilder
-    private var content: some View {
-        ZStack {
-            switch selectedTab {
-            case .hosts: HostsView().transition(.opacity)
-            case .env:   EnvView().transition(.opacity)
-            }
-        }
-        .animation(reduceMotion ? nil : .dsSmooth, value: selectedTab)
-    }
-
-    // MARK: - Derived state
-
-    private var envEntryCount: Int {
-        guard let repoId = envManager.selectedRepoId else { return 0 }
-        return envManager.loadedFiles[repoId]?.flatMap(\.entries).count ?? 0
-    }
-
-    private var activeProfile: Profile? {
-        guard let id = hostsManager.activeProfileID else { return nil }
-        return hostsManager.profiles.first { $0.id == id }
-    }
-
-    private var pendingChanges: Int {
-        switch selectedTab {
-        case .hosts:
-            return hostsManager.hasUnsavedChanges ? 1 : 0
-        case .env:
-            guard let repoId = envManager.selectedRepoId else { return 0 }
-            return envManager.loadedFiles[repoId]?.filter(\.hasUnsavedChanges).count ?? 0
-        }
-    }
-
-    // MARK: - Actions
-
-    private var canUndoForTab: Bool {
-        selectedTab == .hosts && hostsManager.canUndo
-    }
-
-    private var canRedoForTab: Bool {
-        selectedTab == .hosts && hostsManager.canRedo
-    }
-
-    private func handleUndo() {
-        switch selectedTab {
-        case .hosts: hostsManager.undo()
-        case .env:   break  // env undo wired in v2.2
-        }
-    }
-
-    private func handleRedo() {
-        switch selectedTab {
-        case .hosts: hostsManager.redo()
-        case .env:   break
-        }
-    }
-
-    private func handleApply() {
-        switch selectedTab {
-        case .hosts: hostsManager.applyChanges()
-        case .env:   envManager.applyCurrentSelection()
-        }
-    }
 }
-

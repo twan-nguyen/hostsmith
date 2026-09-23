@@ -36,7 +36,7 @@ protocol PaletteCommand {
 struct PaletteContext {
     let hostsManager: HostsFileManager
     let envManager: EnvFileManager
-    let switchTab: (AppTab) -> Void
+    let select: (AppSidebarSelection) -> Void
     let dismiss: () -> Void
 }
 
@@ -49,7 +49,7 @@ struct SwitchProfileCommand: PaletteCommand {
     var id: String { "switch-profile-\(profile.id.uuidString)" }
     var title: String { "Chuyển sang \(profile.name)" }
     var subtitle: String? { isActive ? "Đang hoạt động" : nil }
-    var icon: String { "circle.fill" }
+    var icon: String { "square.stack.3d.up" }
     var iconTint: Color { Color.ds(profile.color) }
     var category: CommandCategory { .profileActions }
     var shortcutHint: String? {
@@ -58,8 +58,8 @@ struct SwitchProfileCommand: PaletteCommand {
     }
 
     func execute(in context: PaletteContext) {
-        context.switchTab(.hosts)
-        context.hostsManager.switchProfile(to: profile.id)
+        context.select(.profile(profile.id))
+        context.hostsManager.activateProfile(id: profile.id)
         context.dismiss()
     }
 }
@@ -69,30 +69,31 @@ struct ClearProfileCommand: PaletteCommand {
     var title: String { "Bỏ chọn profile" }
     var subtitle: String? { "Hiện tất cả host" }
     var icon: String { "circle.dashed" }
-    var iconTint: Color { .secondary }
+    var iconTint: Color { DS.Colors.inkSecondary }
     var category: CommandCategory { .profileActions }
     var shortcutHint: String? { "⌘0" }
 
     func execute(in context: PaletteContext) {
-        context.switchTab(.hosts)
+        context.select(.systemHosts)
         context.hostsManager.switchProfile(to: nil)
         context.dismiss()
     }
 }
 
-struct OpenTabCommand: PaletteCommand {
-    let tab: AppTab
+/// Jumps to a sidebar item: System hosts or a repo.
+struct OpenSelectionCommand: PaletteCommand {
+    let selection: AppSidebarSelection
+    let title: String
+    let subtitle: String?
+    let icon: String
 
-    var id: String { "open-tab-\(tab.rawValue)" }
-    var title: String { tab == .hosts ? "Mở tab Hosts" : "Mở tab Env" }
-    var subtitle: String? { nil }
-    var icon: String { tab == .hosts ? "list.bullet" : "doc.text" }
-    var iconTint: Color { .accentColor }
+    var id: String { "open-\(selection.rawValue)" }
+    var iconTint: Color { DS.Colors.accent }
     var category: CommandCategory { .suggestions }
     var shortcutHint: String? { nil }
 
     func execute(in context: PaletteContext) {
-        context.switchTab(tab)
+        context.select(selection)
         context.dismiss()
     }
 }
@@ -106,12 +107,12 @@ struct SearchInHostsCommand: PaletteCommand {
     var title: String { "Tìm \"\(query)\" trong Hosts" }
     var subtitle: String? { "Lọc theo hostname / IP" }
     var icon: String { "magnifyingglass" }
-    var iconTint: Color { .accentColor }
+    var iconTint: Color { DS.Colors.accent }
     var category: CommandCategory { .suggestions }
     var shortcutHint: String? { nil }
 
     func execute(in context: PaletteContext) {
-        context.switchTab(.hosts)
+        context.select(.systemHosts)
         context.hostsManager.pendingSearchQuery = query
         context.dismiss()
     }
@@ -125,12 +126,14 @@ struct SearchInEnvCommand: PaletteCommand {
     var title: String { "Tìm \"\(query)\" trong Env" }
     var subtitle: String? { "Lọc theo key / value" }
     var icon: String { "magnifyingglass" }
-    var iconTint: Color { .accentColor }
+    var iconTint: Color { DS.Colors.accent }
     var category: CommandCategory { .suggestions }
     var shortcutHint: String? { nil }
 
     func execute(in context: PaletteContext) {
-        context.switchTab(.env)
+        if let repoId = context.envManager.selectedRepoId ?? context.envManager.repos.first?.id {
+            context.select(.repo(repoId))
+        }
         context.envManager.pendingSearchQuery = query
         context.dismiss()
     }

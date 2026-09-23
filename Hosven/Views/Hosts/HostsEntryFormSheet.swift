@@ -15,149 +15,110 @@ enum EntryFormMode: Identifiable {
 struct EntryFormSheet: View {
     let hostsManager: HostsFileManager
     let mode: EntryFormMode
+    /// Block preselected for a new entry, e.g. the profile the sheet was opened from.
+    var initialTag: String? = nil
     @Environment(\.dismiss) private var dismiss
 
     @State private var ip = ""
     @State private var hostname = ""
     @State private var comment = ""
     @State private var selectedTag: String = ""
-    @State private var errorMessage = ""
+    @State private var ipReason: String?
+    @State private var hostnameReason: String?
 
-    var isEditing: Bool {
+    private var isEditing: Bool {
         if case .edit = mode { return true }
         return false
     }
 
-    var title: String {
-        isEditing ? "Sửa entry" : "Thêm entry mới"
-    }
-
     var body: some View {
         DSSheetContainer(
-            title: title,
+            title: isEditing ? "Sửa entry" : "Entry mới",
             bodyContent: { formBody },
-            footer: { footerButtons }
+            footer: {
+                Button("Huỷ") { dismiss() }
+                    .buttonStyle(.ds(.bordered, size: .lg))
+                    .keyboardShortcut(.escape)
+                Button(isEditing ? "Lưu" : "Thêm entry") { save() }
+                    .buttonStyle(.ds(.primary, size: .lg))
+                    .keyboardShortcut(.return)
+            }
         )
         .frame(width: 460)
         .onAppear {
-            if case .edit(let entry) = mode {
+            switch mode {
+            case .edit(let entry):
                 ip = entry.ip
                 hostname = entry.hostname
                 comment = entry.comment
                 selectedTag = entry.tag ?? ""
+            case .add:
+                selectedTag = initialTag ?? ""
+                if ip.isEmpty { ip = "127.0.0.1" }
             }
         }
     }
 
     private var formBody: some View {
-        VStack(alignment: .leading, spacing: DSSpacing.p3) {
-            DSField("IP Address", text: $ip, prompt: "127.0.0.1", monospaced: true) {
-                HStack(spacing: 6) {
-                    Text("Chọn nhanh")
-                        .font(.dsCaption)
-                        .foregroundStyle(Color.dsTextTertiary)
-                    QuickIPButton(label: "127.0.0.1", ip: $ip)
-                    QuickIPButton(label: "0.0.0.0", ip: $ip)
-                    QuickIPButton(label: "::1", ip: $ip)
+        VStack(alignment: .leading, spacing: DS.Spacing.space6) {
+            DSField("Địa chỉ IP", text: $ip, prompt: "Địa chỉ IP", monospaced: true, autocorrect: false, invalidReason: ipReason) {
+                HStack(spacing: DS.Spacing.space3) {
+                    ForEach(["127.0.0.1", "0.0.0.0", "::1"], id: \.self) { quick in
+                        Button(quick) { ip = quick }
+                            .buttonStyle(.ds(.bordered, size: .sm))
+                            .font(DS.Text.monoCaption)
+                    }
                 }
             }
 
-            DSField("Hostname", text: $hostname, prompt: "example.com", monospaced: true)
+            DSField("Hostname", text: $hostname, prompt: "Hostname", monospaced: true, autocorrect: false, invalidReason: hostnameReason)
 
-            DSField("Ghi chú", text: $comment, prompt: "Tuỳ chọn")
+            DSField("Ghi chú", text: $comment, prompt: "Ghi chú")
 
-            if !hostsManager.tags.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Tag")
-                        .font(.dsLabel)
-                        .foregroundStyle(Color.dsTextSecondary)
+            if !blockNames.isEmpty {
+                VStack(alignment: .leading, spacing: DS.Spacing.space3) {
+                    Text("Block")
+                        .font(DS.Text.textMenuLabel)
+                        .foregroundStyle(DS.Colors.inkSecondary)
                     Picker("", selection: $selectedTag) {
-                        Text("Không có tag").tag("")
-                        ForEach(hostsManager.tags) { tag in
-                            Text(tag.name).tag(tag.name)
+                        Text("Không thuộc block").tag("")
+                        ForEach(blockNames, id: \.self) { name in
+                            Text(name).tag(name)
                         }
                     }
                     .labelsHidden()
                     .pickerStyle(.menu)
                 }
             }
-
-            if !errorMessage.isEmpty {
-                Text(errorMessage)
-                    .foregroundStyle(Color.dsProfileRed)
-                    .font(.dsCaption)
-            }
         }
     }
 
-    private var footerButtons: some View {
-        HStack {
-            Button("Hủy") { dismiss() }
-                .keyboardShortcut(.escape)
-            Spacer()
-            Button(isEditing ? "Cập nhật" : "Thêm") { save() }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.return)
-        }
+    /// Every block a new entry can join: existing tags plus profiles that have no entries yet.
+    private var blockNames: [String] {
+        let names = Set(hostsManager.tags.map(\.name) + hostsManager.profiles.map(\.name) + [initialTag ?? ""])
+        return names.filter { !$0.isEmpty }.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
     private func save() {
-        errorMessage = ""
-
-        guard !ip.trimmingCharacters(in: .whitespaces).isEmpty else {
-            errorMessage = "IP không được để trống"
-            return
-        }
-        guard !hostname.trimmingCharacters(in: .whitespaces).isEmpty else {
-            errorMessage = "Hostname không được để trống"
-            return
-        }
-
-        let trimmedHostname = hostname.trimmingCharacters(in: .whitespaces)
+        ipReason = nil
+        hostnameReason = nil
         let trimmedIP = ip.trimmingCharacters(in: .whitespaces)
-        let tagValue = selectedTag.isEmpty ? nil : selectedTag
+        let trimmedHostname = hostname.trimmingCharacters(in: .whitespaces)
 
-        if case .add = mode {
-            if hostsManager.hostnameExists(trimmedHostname) {
-                errorMessage = "Hostname \"\(trimmedHostname)\" đã tồn tại"
-                return
-            }
-            hostsManager.addEntry(
-                ip: trimmedIP,
-                hostname: trimmedHostname,
-                comment: comment.trimmingCharacters(in: .whitespaces),
-                tag: tagValue
-            )
-        } else if case .edit(let entry) = mode {
-            hostsManager.updateEntry(
-                id: entry.id,
-                ip: trimmedIP,
-                hostname: trimmedHostname,
-                comment: comment.trimmingCharacters(in: .whitespaces),
-                tag: tagValue
-            )
+        if trimmedIP.isEmpty { ipReason = "Cần một địa chỉ IP" }
+        if trimmedHostname.isEmpty { hostnameReason = "Cần một hostname" }
+        if case .add = mode, hostsManager.hostnameExists(trimmedHostname) {
+            hostnameReason = "Hostname \(trimmedHostname) đã có trong /etc/hosts"
         }
+        guard ipReason == nil, hostnameReason == nil else { return }
 
+        let tagValue = selectedTag.isEmpty ? nil : selectedTag
+        switch mode {
+        case .add:
+            hostsManager.addEntry(ip: trimmedIP, hostname: trimmedHostname, comment: comment.trimmingCharacters(in: .whitespaces), tag: tagValue)
+        case .edit(let entry):
+            hostsManager.updateEntry(id: entry.id, ip: trimmedIP, hostname: trimmedHostname, comment: comment.trimmingCharacters(in: .whitespaces), tag: tagValue)
+        }
         dismiss()
-    }
-}
-
-struct QuickIPButton: View {
-    let label: String
-    @Binding var ip: String
-
-    var body: some View {
-        Button(label) { ip = label }
-            .buttonStyle(.plain)
-            .font(.system(size: 10, design: .monospaced))
-            .foregroundStyle(Color.dsTextSecondary)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(Color.white.opacity(0.05))
-            .overlay(
-                RoundedRectangle(cornerRadius: DSRadius.sm)
-                    .stroke(Color.dsBorderSecondary, lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: DSRadius.sm))
     }
 }
