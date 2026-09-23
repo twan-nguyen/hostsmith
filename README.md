@@ -14,11 +14,17 @@
 
 ## Tính năng
 
-- Quản lý `/etc/hosts` theo **profile** (Release / Production / ...) với màu phân biệt
-- Bật/tắt từng entry inline, apply 1 click (sudo cache 5 phút, tự flush DNS)
-- Quản lý nhiều `.env` file theo repo, snapshot/restore bộ env vars
-- **⌘K Command Palette**: fuzzy search profile, tab, entries
-- Dark mode, custom title bar, ⌘1–9 switch profile nhanh
+- Quản lý `/etc/hosts` theo **profile** (Local / Staging / Production) với block bật tắt cùng nhau
+- Trình soạn thảo có gutter và tô màu cú pháp, áp dụng một lần (quyền quản trị hỏi một lần mỗi phiên, tự flush DNS)
+- Quản lý nhiều `.env` file theo repo: bảng, raw, báo biến thiếu so với `.env.example`, ẩn giá trị bí mật, snapshot/restore bộ biến
+- Khoá định nghĩa nhiều lần trong một `.env` gộp thành một hàng có menu chọn giá trị đang dùng
+- Cảnh báo khi `.env` đang được git theo dõi hoặc chưa có trong `.gitignore`, thêm vào `.gitignore` một nhấn
+- Sau khi ghi `/etc/hosts`, kiểm tra lại các hostname vừa đổi bằng resolver hệ thống và báo kết quả
+- Ports: liệt kê cổng đang bị chiếm, gắn với repo, dừng tiến trình có xác nhận
+- Mở repo, thư mục của tiến trình hoặc file trong Terminal (iTerm, Ghostty, Warp, Terminal) và editor (VS Code, Cursor, Zed, VSCodium) đã cài
+- URL scheme `hosven://` để điều khiển từ Raycast, script hay Makefile
+- Menu bar panel: bật tắt block và kích hoạt profile không cần mở cửa sổ
+- **⌘K Command Palette**, giao diện sáng và tối, ⌘1–9 kích hoạt profile nhanh
 
 ## Cài đặt
 
@@ -31,10 +37,26 @@ Cập nhật: `brew upgrade hosven`
 
 ## Sử dụng
 
-1. Mở app — entries từ `/etc/hosts` load tự động
-2. Click profile sidebar để filter; ⌘0 xem tất cả; ⌘1–9 switch nhanh
-3. Toggle entry inline → ⌘S để apply (nhập mật khẩu admin lần đầu)
-4. ⌘K mở Command Palette, ⌘, mở Settings
+1. Mở app, nội dung `/etc/hosts` được tải tự động vào trình soạn thảo
+2. Chọn profile ở thanh bên để xem entry của nó, nhấn Kích hoạt để bật cả block; ⌘1–9 kích hoạt nhanh, ⌘0 bỏ kích hoạt
+3. Sửa trực tiếp trong trình soạn thảo hoặc bật tắt block, rồi ⌘S để áp dụng (nhập mật khẩu quản trị lần đầu)
+4. ⌘K mở Command Palette, ⌘, mở Cài đặt
+
+### Điều khiển từ ngoài
+
+```bash
+open "hosven://activate/Prod-local"          # kích hoạt profile hosts rồi áp dụng
+open "hosven://deactivate"                   # bỏ kích hoạt profile hosts
+open "hosven://env/end-user/profile/staging" # áp dụng env profile đã lưu cho repo
+open "hosven://open/end-user"                # mở repo trong app
+open "hosven://ports"                        # mở pane Ports
+```
+
+Tên profile và repo không phân biệt hoa thường; tên có khoảng trắng thì mã hoá URL.
+
+### Cấu hình
+
+Profile hosts và danh sách repo nằm ở `~/.config/hosven/` (`profiles.json`, `env.json`), hoặc `$XDG_CONFIG_HOME/hosven/` nếu biến đó được đặt, để bạn đưa vào dotfiles. Lần chạy đầu sau khi nâng cấp, Hosven chuyển dữ liệu cũ từ UserDefaults và Application Support sang đó.
 
 ## Build từ source
 
