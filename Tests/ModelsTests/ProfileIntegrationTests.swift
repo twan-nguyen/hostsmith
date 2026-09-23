@@ -27,9 +27,9 @@ struct ProfileIntegrationTests {
         let (m, store) = makeManager()
         let names = m.profiles.map(\.name).sorted()
         #expect(names == ["Production", "Release"])
-        // Heuristic: "release" → purple, "prod" → green
+        // Heuristic: "prod" → production red, anything unrecognised → neutral
         #expect(m.profiles.first(where: { $0.name == "Release" })?.color == .purple)
-        #expect(m.profiles.first(where: { $0.name == "Production" })?.color == .green)
+        #expect(m.profiles.first(where: { $0.name == "Production" })?.color == .red)
         #expect(m.profiles.allSatisfy { $0.shortcutNumber != nil })
         #expect(store.stored.count == 2)
     }

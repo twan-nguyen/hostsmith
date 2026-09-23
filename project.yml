@@ -40,6 +40,9 @@ targets:
         CFBundlePackageType: APPL
         CFBundleInfoDictionaryVersion: "6.0"
         LSUIElement: false
+        CFBundleURLTypes:
+          - CFBundleURLName: com.twannguyen.hosven
+            CFBundleURLSchemes: [hosven]
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
         NSHumanReadableCopyright: ""
         SUFeedURL: https://twan-nguyen.github.io/hosven/appcast.xml

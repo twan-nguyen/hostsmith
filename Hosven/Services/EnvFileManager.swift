@@ -21,13 +21,16 @@ final class EnvFileManager {
 
     // MARK: - Storage
 
+    /// `~/.config/hosven/env.json`; the Application Support file older versions
+    /// wrote is copied there once so nothing is lost on upgrade.
     private static func defaultStorageURL() -> URL {
-        let base = FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
-            .first!
-        return base
-            .appendingPathComponent("com.twannguyen.hosven")
-            .appendingPathComponent("env-config.json")
+        let url = HosvenConfig.envURL
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: url.path), fm.fileExists(atPath: HosvenConfig.legacyEnvURL.path) {
+            try? HosvenConfig.ensureDirectory(for: url)
+            try? fm.copyItem(at: HosvenConfig.legacyEnvURL, to: url)
+        }
+        return url
     }
 
     private struct PersistedState: Codable {
@@ -45,17 +48,14 @@ final class EnvFileManager {
             self.repos = state.repos
             self.selectedRepoId = state.repos.first?.id
         } catch {
-            showToast("Cấu hình env bị lỗi, khởi tạo lại", type: .error)
+            showToast("Không đọc được cấu hình env, Hosven khởi tạo lại danh sách repo", type: .error)
         }
     }
 
     private func persist() {
         let state = PersistedState(version: 1, repos: repos)
         do {
-            try FileManager.default.createDirectory(
-                at: storageURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
+            try HosvenConfig.ensureDirectory(for: storageURL)
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -77,7 +77,7 @@ final class EnvFileManager {
         repos.append(repo)
         selectedRepoId = repo.id
         persist()
-        showToast("Đã thêm repo \"\(repo.name)\"", type: .success)
+        showToast("Đã thêm repo \(repo.name)", type: .success)
     }
 
     func removeRepo(id: UUID) {
@@ -89,7 +89,7 @@ final class EnvFileManager {
             selectedRepoId = repos.first?.id
         }
         persist()
-        showToast("Đã xoá repo \"\(name)\"", type: .info)
+        showToast("Đã xoá repo \(name) khỏi danh sách", type: .info)
     }
 
     func renameRepo(id: UUID, newName: String) throws {
@@ -108,8 +108,9 @@ final class EnvFileManager {
 
     // MARK: - File Discovery
 
-    // Chỉ hỗ trợ .env và .env.local — bản chuẩn và bản local override, không quét rộng hơn để tránh lẫn sample/test
-    private static let supportedEnvFiles = [".env", ".env.local"]
+    /// `.env`, its local override, and the example file the design diffs against.
+    private static let supportedEnvFiles = [".env", ".env.local", ".env.example"]
+    static let exampleFileName = ".env.example"
 
     func discoverEnvFiles(in repoPath: String) -> EnvDiscoverResult {
         let fm = FileManager.default
@@ -180,7 +181,7 @@ final class EnvFileManager {
         do {
             try applyChanges(repoId: repoId, file: file)
         } catch {
-            showToast("Lỗi áp dụng: \(error.localizedDescription)", type: .error)
+            showToast("Không áp dụng được: \(error.localizedDescription)", type: .error)
         }
     }
 
@@ -200,7 +201,7 @@ final class EnvFileManager {
             cached.rawTextDirty = false
         }
 
-        showToast("Đã áp dụng \(file.relativePath)", type: .success)
+        showToast("Đã ghi \(file.entries.filter { !$0.isBlankOrComment }.count) biến vào \(file.relativePath)", type: .success)
     }
 
     // MARK: - Raw text editing
@@ -248,7 +249,7 @@ final class EnvFileManager {
             cached.rawTextDirty = false
         }
 
-        showToast("Đã áp dụng \(relativePath)", type: .success)
+        showToast("Đã ghi \(reparsed.filter { !$0.isBlankOrComment }.count) biến vào \(relativePath)", type: .success)
     }
 
     /// Atomic write via temp file + replaceItemAt, preserves POSIX perms. Shared by
@@ -289,6 +290,22 @@ final class EnvFileManager {
         // Reject path traversal and absolute paths
         if relativePath.contains("..") || relativePath.hasPrefix("/") {
             throw EnvError.invalidPath
+        }
+    }
+
+    /// Entries of the repo's `.env.example`, read from disk, or nil when absent.
+    func exampleEntries(repoId: UUID) -> [EnvEntry]? {
+        guard let repo = repos.first(where: { $0.id == repoId }) else { return nil }
+        let url = URL(fileURLWithPath: repo.path).appendingPathComponent(Self.exampleFileName)
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        return EnvParser.parse(content)
+    }
+
+    /// Drops pending edits on a file, returning it to the last loaded or applied state.
+    func discardChanges(repoId: UUID, fileId: UUID) {
+        updateLoadedFile(repoId: repoId, fileId: fileId) { file in
+            file.entries = file.pristineEntries
+            file.rawTextDirty = false
         }
     }
 
@@ -362,6 +379,16 @@ final class EnvFileManager {
         return inserted
     }
 
+    /// Makes `entryId` the one enabled definition of `key`; `nil` disables every
+    /// definition. This is how a file that keeps several values for one key switches.
+    func selectVariant(repoId: UUID, fileId: UUID, key: String, entryId: UUID?) {
+        updateLoadedFile(repoId: repoId, fileId: fileId) { file in
+            for idx in file.entries.indices where !file.entries[idx].isBlankOrComment && file.entries[idx].key == key {
+                file.entries[idx].isEnabled = file.entries[idx].id == entryId
+            }
+        }
+    }
+
     func toggleEntry(repoId: UUID, fileId: UUID, entryId: UUID) {
         updateLoadedFile(repoId: repoId, fileId: fileId) { file in
             guard let idx = file.entries.firstIndex(where: { $0.id == entryId }) else { return }
@@ -405,7 +432,7 @@ final class EnvFileManager {
         let profile = EnvProfile(name: trimmed, files: snapshots)
         repos[repoIdx].profiles.append(profile)
         persist()
-        showToast("Đã lưu profile \"\(trimmed)\" (\(snapshots.count) files)", type: .success)
+        showToast("Đã lưu profile \(trimmed) với \(snapshots.count) file", type: .success)
         return profile
     }
 
@@ -460,7 +487,7 @@ final class EnvFileManager {
 
         // Invalidate cached files so next read pulls from disk
         loadedFiles[repoId] = nil
-        showToast("Đã chuyển sang profile \"\(profile.name)\"", type: .success)
+        showToast("Đã áp dụng profile \(profile.name)", type: .success)
     }
 
     func deleteProfile(repoId: UUID, profileId: UUID) {
@@ -469,7 +496,7 @@ final class EnvFileManager {
         repos[repoIdx].profiles.removeAll { $0.id == profileId }
         persist()
         if let name = name {
-            showToast("Đã xoá profile \"\(name)\"", type: .info)
+            showToast("Đã xoá profile \(name)", type: .info)
         }
     }
 
