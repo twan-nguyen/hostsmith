@@ -31,7 +31,7 @@ struct Profile: Identifiable, Codable, Hashable {
 extension Profile {
     /// Built-in defaults shown on first launch.
     static let release = Profile(name: "Release", color: .purple, shortcutNumber: 1)
-    static let production = Profile(name: "Production", color: .green, shortcutNumber: 2)
+    static let production = Profile(name: "Production", color: .red, shortcutNumber: 2)
     static let master = Profile(name: "Master", color: .amber, shortcutNumber: 3)
 
     static let defaults: [Profile] = [.release, .production, .master]

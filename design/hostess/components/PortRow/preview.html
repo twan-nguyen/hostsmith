@@ -1,0 +1,23 @@
+<!-- @dsCard group="Data" height=230 subtitle="What is holding a port, and how to get it back" -->
+<div class="p">
+  <div class="hs-pane">
+    <div class="hs-port">
+      <div class="hs-port__number">5173</div>
+      <div class="hs-port__text"><div class="hs-port__process">node</div><div class="hs-port__meta">pid 41288 · ~/work/acme/web · vite</div></div>
+      <div class="hs-port__trail"><span class="hs-status"><span class="hs-dot hs-dot--ok"></span><span class="hs-status__label">Yours</span></span><span class="hs-btn hs-btn--sm hs-btn--danger">Kill</span></div>
+    </div>
+    <div class="hs-port">
+      <div class="hs-port__number">5432</div>
+      <div class="hs-port__text"><div class="hs-port__process">postgres</div><div class="hs-port__meta">pid 812 · docker · acme-db</div></div>
+      <div class="hs-port__trail"><span class="hs-status"><span class="hs-dot hs-dot--idle"></span><span class="hs-status__label">Container</span></span><span class="hs-btn hs-btn--sm">Stop</span></div>
+    </div>
+    <div class="hs-port">
+      <div class="hs-port__number">8080</div>
+      <div class="hs-port__text"><div class="hs-port__process">java</div><div class="hs-port__meta">pid 3311 · unknown owner</div></div>
+      <div class="hs-port__trail"><span class="hs-status"><span class="hs-dot hs-dot--danger"></span><span class="hs-status__label">Unknown</span></span><span class="hs-btn hs-btn--sm hs-btn--danger">Kill</span></div>
+    </div>
+  </div>
+</div>
+<style>
+  .p { background: var(--surface-window); padding: var(--space-6); }
+</style>

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hostess — Menu bar panel</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="ds/hostess/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body { margin: 0; }
+a { color: var(--accent); } a:hover { color: var(--accent-hover); }
+button { font: inherit; }
+</style>
+</helmet>
+<div data-theme="light" style="width: 440px; height: 620px; box-sizing: border-box; position: relative; overflow: hidden; background: #6a9bcc; font-family: var(--font-sans);">
+  <div aria-hidden="true" style="position: absolute; left: -60px; top: 140px; width: 300px; height: 300px; border-radius: 999px; background: #cbcadb; opacity: 0.9;"></div>
+  <div aria-hidden="true" style="position: absolute; left: 220px; top: 360px; width: 260px; height: 260px; border-radius: 999px; background: #e3dacc; opacity: 0.9;"></div>
+  <div style="height: 28px; display: flex; align-items: center; justify-content: flex-end; gap: 14px; padding: 0 12px; background: rgba(20,20,19,0.55); color: #ffffff;"><span style="font-size: 12px; opacity: 0.8;">100%</span><span style="position: relative; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 20px; border-radius: 6px; background: rgba(255,255,255,0.22);"><svg width="16" height="16" viewBox="0 0 1024 1024" aria-hidden="true"><g><rect x="284" y="248" width="120" height="528" rx="60" fill="currentColor"/><rect x="620" y="248" width="120" height="528" rx="60" fill="currentColor"/><rect x="404" y="452" width="216" height="120" rx="60" fill="currentColor" fill-opacity="0.42"/><circle cx="560" cy="512" r="46" fill="currentColor"/></g></svg><span aria-hidden="true" style="position: absolute; right: 1px; bottom: 1px; width: 7px; height: 7px; border-radius: 999px; background: var(--env-staging); border: 1px solid #141413;"></span></span><span style="font-size: 12px; opacity: 0.8;">Mon 09:41</span></div>
+  <div class="hs-menubar" style="position: absolute; top: 36px; right: 16px;">
+    <div class="hs-menubar__head"><svg style="color: var(--ink-secondary);" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2 14 5 8 8 2 5z"/><path d="m2 8.4 6 3 6-3"/></svg><span class="hs-menubar__name">Acme staging</span><span class="hs-chip hs-chip--staging">Staging</span></div>
+    <div class="hs-menubar__label">Quick toggles</div>
+    <div class="hs-menubar__item"><div class="hs-row__text"><div>Redirect api.acme.test</div><div class="hs-row__sub">127.0.0.1 → api.acme.test</div></div><button class="hs-switch is-on" role="switch" aria-checked="true" aria-label="Redirect api.acme.test, on" style="border: 0; background: transparent; padding: 0;"><span class="hs-switch__track"><span class="hs-switch__knob"></span></span></button></div>
+    <div class="hs-menubar__item"><div class="hs-row__text"><div>Staging overrides</div><div class="hs-row__sub">10.4.1.20 → 4 entries</div></div><button class="hs-switch is-on" role="switch" aria-checked="true" aria-label="Staging overrides, on" style="border: 0; background: transparent; padding: 0;"><span class="hs-switch__track"><span class="hs-switch__knob"></span></span></button></div>
+    <div class="hs-menubar__item"><div class="hs-row__text"><div>Block analytics hosts</div><div class="hs-row__sub">0.0.0.0 → 180 entries</div></div><button class="hs-switch" role="switch" aria-checked="false" aria-label="Block analytics hosts, off" style="border: 0; background: transparent; padding: 0;"><span class="hs-switch__track"><span class="hs-switch__knob"></span></span></button></div>
+    <div class="hs-menubar__item"><div class="hs-row__text"><div>Route CDN to localhost <svg style="color: var(--ink-secondary); vertical-align: -1px;" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6" rx="1.2"/><path d="M5.8 7V5.2a2.2 2.2 0 0 1 4.4 0V7"/></svg></div><div class="hs-row__sub">127.0.0.1 → cdn.acme.test</div></div><button class="hs-switch" role="switch" aria-checked="false" aria-label="Route CDN to localhost, off" style="border: 0; background: transparent; padding: 0;"><span class="hs-switch__track"><span class="hs-switch__knob"></span></span></button></div>
+    <div class="hs-menubar__sep"></div>
+    <div class="hs-menubar__label">Ports in use · 4</div>
+    <div class="hs-menubar__item"><div class="hs-row__text"><span style="font-family: var(--font-mono); font-size: 13px;">5173</span> &nbsp;node</div><span class="hs-menubar__shortcut">acme/web</span></div>
+    <div class="hs-menubar__item"><div class="hs-row__text"><span style="font-family: var(--font-mono); font-size: 13px;">5432</span> &nbsp;postgres</div><span class="hs-menubar__shortcut">docker</span></div>
+    <div class="hs-menubar__item"><div class="hs-row__text" style="color: var(--danger);"><span style="font-family: var(--font-mono); font-size: 13px;">8080</span> &nbsp;java · unknown</div><span class="hs-menubar__shortcut">Kill…</span></div>
+    <div class="hs-menubar__item"><div class="hs-row__text" style="color: var(--accent);">Show all in Hostess</div></div>
+    <div class="hs-menubar__sep"></div>
+    <div class="hs-menubar__item"><div class="hs-row__text">Open Hostess</div><span class="hs-menubar__shortcut">⌘O</span></div>
+    <div class="hs-menubar__item"><div class="hs-row__text">Settings…</div><span class="hs-menubar__shortcut">⌘,</span></div>
+    <div class="hs-menubar__item"><div class="hs-row__text">Quit Hostess</div><span class="hs-menubar__shortcut">⌘Q</span></div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":440,"height":620}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

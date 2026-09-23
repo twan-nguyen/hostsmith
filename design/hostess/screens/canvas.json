@@ -1,0 +1,131 @@
+{
+  "v": 3,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-09-21T10:55:25Z"
+  },
+  "title": "Hostess — Screens",
+  "launch": {
+    "view": "canvas"
+  },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1280,
+      "h": 840,
+      "title": "Hosts — editor"
+    },
+    "EnvTable.dc.html": {
+      "x": 1360,
+      "y": 0,
+      "w": 1280,
+      "h": 840,
+      "title": ".env — table"
+    },
+    "EnvDiff.dc.html": {
+      "x": 2720,
+      "y": 0,
+      "w": 1280,
+      "h": 840,
+      "title": ".env — diff (dark)"
+    },
+    "Profiles.dc.html": {
+      "x": 0,
+      "y": 1220,
+      "w": 1280,
+      "h": 840,
+      "title": "Profile"
+    },
+    "Ports.dc.html": {
+      "x": 1360,
+      "y": 1220,
+      "w": 1280,
+      "h": 840,
+      "title": "Ports (dark)"
+    },
+    "MenuBar.dc.html": {
+      "x": 2720,
+      "y": 1220,
+      "w": 440,
+      "h": 620,
+      "title": "Menu bar panel"
+    },
+    "AppIcon.dc.html": {
+      "x": 0,
+      "y": 2440,
+      "w": 1440,
+      "h": 1000,
+      "title": "App icon"
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "EnvTable.dc.html",
+    "EnvDiff.dc.html",
+    "Profiles.dc.html",
+    "Ports.dc.html",
+    "MenuBar.dc.html",
+    "AppIcon.dc.html"
+  ],
+  "notes": {
+    "r1": {
+      "x": 0,
+      "y": -300,
+      "text": "The window — editing files",
+      "kind": "title1",
+      "maxW": 4000
+    },
+    "r2": {
+      "x": 0,
+      "y": 920,
+      "text": "Profiles, ports and the menu bar",
+      "kind": "title1",
+      "maxW": 4000
+    },
+    "n1": {
+      "x": 4080,
+      "y": 0,
+      "w": 340,
+      "text": "In the manner of the Claude desktop app: ivory ground, warm greys, serif pane titles, hairline borders instead of shadows, one clay accent. Every colour and size comes from the Hostess design system — the two dark boards are the same markup with data-theme=\"dark\".",
+      "color": "blue"
+    },
+    "n2": {
+      "x": 4080,
+      "y": 260,
+      "w": 340,
+      "text": "Apply is always the rightmost control in the window, in every pane. Nothing reaches disk without pressing it — the menu bar toggles are the one exception, and they are limited to instant, reversible actions."
+    },
+    "n3": {
+      "x": 3240,
+      "y": 1220,
+      "w": 340,
+      "text": "The panel is fixed at 340px and never scrolls: 8 toggles and 3 ports is the cap, the rest goes to the window. Production never commits from here.",
+      "color": "orange"
+    },
+    "r3": {
+      "x": 0,
+      "y": 2140,
+      "text": "App icon",
+      "kind": "title1",
+      "maxW": 4000
+    },
+    "n4": {
+      "x": 1520,
+      "y": 2440,
+      "w": 340,
+      "text": "Chosen: 03 H-switch, now an ivory mark on flat clay. One mark for the Dock icon, the sidebar header and the menu bar template glyph; four appearances ship as SVG in the design system under assets/Logos.",
+      "color": "green"
+    }
+  },
+  "designSystems": [
+    {
+      "title": "Hostess",
+      "namespace": "hostess",
+      "artifact": "https://claude.ai/artifact/6QKvsHm6EUyKyY2ii77tW7",
+      "version": null,
+      "copiedAt": "2026-09-23T02:13:27Z"
+    }
+  ]
+}

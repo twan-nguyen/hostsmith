@@ -1,0 +1,128 @@
+/* Compiled from the Hostess design system tokens.json (Claude-desktop edition). */
+:root, [data-theme="light"] {
+  --surface-window: #faf9f5;
+  --surface-content: #ffffff;
+  --surface-sidebar: #f0eee6;
+  --surface-raised: #ffffff;
+  --surface-sunken: #f0eee6;
+  --surface-hover: #73726c1a;
+  --surface-menubar: #fffffff5;
+  --surface-scrim: #14141333;
+  --ink-primary: #141413;
+  --ink-secondary: #5e5d59;
+  --ink-tertiary: #66655f;
+  --ink-on-accent: #ffffff;
+  --ink-on-status: #ffffff;
+  --hairline: #1f1e1d26;
+  --hairline-strong: #1f1e1d4d;
+  --border-control: #77766f;
+  --focus-ring: var(--accent);
+  --accent: #a8472a;
+  --accent-bright: #d97757;
+  --accent-hover: #8f3a21;
+  --accent-tint: #f8ebe4;
+  --control-track: #d1cfc5;
+  --success: #3f6b30;
+  --success-tint: #e4eddd;
+  --warning: #8a5a00;
+  --warning-tint: #f5ead0;
+  --danger: #b3311f;
+  --danger-tint: #f7dfda;
+  --env-local: var(--success);
+  --env-staging: var(--warning);
+  --env-production: var(--danger);
+  --code-comment: #63625c;
+  --code-key: #2a5fa8;
+  --code-value: #3f6b30;
+  --code-ip: #9a4a1c;
+  --diff-add: #e4eddd;
+  --diff-remove: #f7dfda;
+  --shadow-control: 0 1px 2px rgba(20,20,19,0.06);
+  --shadow-card: 0 1px 3px rgba(20,20,19,0.05);
+  --shadow-popover: 0 12px 32px rgba(20,20,19,0.14), 0 2px 6px rgba(20,20,19,0.06);
+}
+[data-theme="dark"] {
+  --surface-window: #262624;
+  --surface-content: #30302e;
+  --surface-sidebar: #1f1e1d;
+  --surface-raised: #3d3d3a;
+  --surface-sunken: #1a1918;
+  --surface-hover: #ffffff14;
+  --surface-menubar: #30302ef5;
+  --surface-scrim: #00000099;
+  --ink-primary: #f5f4ed;
+  --ink-secondary: #b0aea5;
+  --ink-tertiary: #9c9a92;
+  --ink-on-accent: #141413;
+  --ink-on-status: #141413;
+  --hairline: #ffffff1f;
+  --hairline-strong: #ffffff40;
+  --border-control: #8f8d85;
+  --focus-ring: var(--accent);
+  --accent: #e08a6c;
+  --accent-bright: #d97757;
+  --accent-hover: #eba38b;
+  --accent-tint: #4a2e24;
+  --control-track: #4d4c48;
+  --success: #8fbf7a;
+  --success-tint: #2c3b26;
+  --warning: #e0b64a;
+  --warning-tint: #403619;
+  --danger: #f49484;
+  --danger-tint: #44261f;
+  --env-local: var(--success);
+  --env-staging: var(--warning);
+  --env-production: var(--danger);
+  --code-comment: #9c9a92;
+  --code-key: #8fb8e8;
+  --code-value: #8fbf7a;
+  --code-ip: #e0a070;
+  --diff-add: #2c3b26;
+  --diff-remove: #44261f;
+  --shadow-control: 0 1px 2px rgba(0,0,0,0.40);
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.30);
+  --shadow-popover: 0 16px 40px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.35);
+}
+:root {
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --space-5: 12px;
+  --space-6: 16px;
+  --space-7: 20px;
+  --space-8: 24px;
+  --space-9: 32px;
+  --space-10: 40px;
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 12px;
+  --radius-pill: 999px;
+  --control-height-sm: 28px;
+  --control-height-md: 34px;
+  --control-height-lg: 38px;
+  --row-height: 36px;
+  --menubar-width: 340px;
+  --sidebar-width: 248px;
+  --pane-inset: 20px;
+  --gutter-width: 48px;
+  --hairline-width: 1px;
+  --focus-ring-width: 2px;
+  --opacity-disabled: 0.4;
+  --opacity-inactive-window: 0.6;
+  --font-sans: "Anthropic Sans", -apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", sans-serif;
+  --font-display: "Anthropic Serif", Georgia, "Times New Roman", Times, serif;
+  --font-mono: "Anthropic Mono", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+.text-large-title { font-family: var(--font-display); font-size: 30px; line-height: 36px; font-weight: 400; }
+.text-title { font-family: var(--font-display); font-size: 20px; line-height: 26px; font-weight: 500; }
+.text-headline { font-family: var(--font-sans); font-size: 14px; line-height: 20px; font-weight: 600; }
+.text-body { font-family: var(--font-sans); font-size: 14px; line-height: 20px; font-weight: 400; }
+.text-callout { font-family: var(--font-sans); font-size: 13px; line-height: 18px; font-weight: 400; }
+.text-caption { font-family: var(--font-sans); font-size: 12px; line-height: 16px; font-weight: 400; }
+.text-menu-label { font-family: var(--font-sans); font-size: 12px; line-height: 16px; font-weight: 500; }
+.mono-body { font-family: var(--font-mono); font-size: 13px; line-height: 20px; font-weight: 400; }
+.mono-strong { font-family: var(--font-mono); font-size: 13px; line-height: 20px; font-weight: 600; }
+.mono-caption { font-family: var(--font-mono); font-size: 12px; line-height: 16px; font-weight: 400; }

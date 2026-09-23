@@ -14,11 +14,11 @@ struct ProfileTests {
 
     @Test("ProfileColor hex matches design tokens")
     func colorHexMapping() {
-        #expect(ProfileColor.purple.hex == "7f77dd")
-        #expect(ProfileColor.green.hex == "5dcaa5")
-        #expect(ProfileColor.amber.hex == "ef9f27")
-        #expect(ProfileColor.blue.hex == "378ADD")
-        #expect(ProfileColor.red.hex == "e24b4a")
+        #expect(ProfileColor.blue.hex == "3f6b30")
+        #expect(ProfileColor.amber.hex == "8a5a00")
+        #expect(ProfileColor.red.hex == "b3311f")
+        #expect(ProfileColor.green.hex == "5e5d59")
+        #expect(ProfileColor.purple.hex == "5e5d59")
     }
 
     @Test("Default profiles have unique IDs and expected colors")
@@ -26,7 +26,7 @@ struct ProfileTests {
         let defaults = Profile.defaults
         #expect(defaults.count == 3)
         #expect(defaults.map(\.name) == ["Release", "Production", "Master"])
-        #expect(defaults.map(\.color) == [.purple, .green, .amber])
+        #expect(defaults.map(\.color) == [.purple, .red, .amber])
         #expect(Set(defaults.map(\.id)).count == 3, "IDs must be unique")
     }
 

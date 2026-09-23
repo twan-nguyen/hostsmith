@@ -1,0 +1,20 @@
+<!-- @dsCard group="Controls" height=150 subtitle="Text, search, monospace, invalid" -->
+<div class="p">
+  <div class="r">
+    <span class="hs-field"><span class="hs-field__value">Acme staging</span></span>
+    <span class="hs-field is-focused"><span class="hs-field__value">Acme staging</span></span>
+    <span class="hs-field"><span class="hs-field__value is-placeholder">Profile name</span></span>
+  </div>
+  <div class="r">
+    <span class="hs-field hs-field--search"><svg class="hs-glyph" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="color: var(--ink-secondary)"><circle cx="7" cy="7" r="4.25"/><path d="M10.2 10.2 14 14"/></svg><span class="hs-field__value is-placeholder">Search entries</span></span>
+    <span class="hs-field hs-field--mono"><span class="hs-field__value">127.0.0.1</span></span>
+    <span class="hs-field is-invalid hs-field--mono"><span class="hs-field__value">127.0.0.256</span></span>
+  </div>
+  <div class="cap">Invalid: the field turns <code>danger</code> and the reason is stated below it, never inside the field.</div>
+</div>
+<style>
+  .p { background: var(--surface-window); padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-5); }
+  .r { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
+  .cap { font-size: 11px; line-height: 14px; color: var(--ink-secondary); }
+  code { font-family: var(--font-mono); }
+</style>

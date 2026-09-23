@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hostess — Profile</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="ds/hostess/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body { margin: 0; }
+a { color: var(--accent); } a:hover { color: var(--accent-hover); }
+button { font: inherit; }
+</style>
+</helmet>
+<div data-theme="light" style="width: 1280px; height: 840px; box-sizing: border-box; display: flex; overflow: hidden; border-radius: 12px; background: var(--surface-window); font-family: var(--font-sans); color: var(--ink-primary);">
+  <div class="hs-sidebar" style="flex: none; display: flex; flex-direction: column; padding: 0 8px 12px;">
+    <div aria-hidden="true" style="height: 40px; flex: none; display: flex; align-items: center; gap: 8px; padding-left: 16px;"><span style="width: 12px; height: 12px; border-radius: 999px; background: #ff5f57;"></span><span style="width: 12px; height: 12px; border-radius: 999px; background: #febc2e;"></span><span style="width: 12px; height: 12px; border-radius: 999px; background: #28c840;"></span></div>
+    <div style="display: flex; flex-direction: column;">
+      <div style="display: flex; align-items: center; gap: 10px; padding: 8px 8px 4px;"><svg width="22" height="22" viewBox="0 0 1024 1024" role="img" aria-label="Hostess app icon"><defs><linearGradient id="sb-base" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e28a6c"/><stop offset="1" stop-color="#d06b4a"/></linearGradient><clipPath id="sb-clip"><rect x="100" y="100" width="824" height="824" rx="186"/></clipPath></defs><rect x="100" y="100" width="824" height="824" rx="186" fill="url(#sb-base)"/><rect x="100" y="100" width="824" height="824" rx="186" fill="none" stroke="#ffffff" stroke-opacity="0.14" stroke-width="6" clip-path="url(#sb-clip)"/><g><rect x="284" y="248" width="120" height="528" rx="60" fill="#faf9f5"/><rect x="620" y="248" width="120" height="528" rx="60" fill="#faf9f5"/><rect x="404" y="452" width="216" height="120" rx="60" fill="#faf9f5" fill-opacity="0.42"/><circle cx="560" cy="512" r="46" fill="#faf9f5"/></g></svg><span style="font-family: var(--font-display); font-size: 17px; font-weight: 500; color: var(--ink-primary);">Hostess</span></div>
+      <div class="hs-sidebar__label">Profiles</div>
+      <button class="hs-sidebar__row is-selected" style="border: 0; text-align: left; width: 100%;"><svg class="hs-sidebar__glyph" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2 14 5 8 8 2 5z"/><path d="m2 8.4 6 3 6-3"/></svg><span class="hs-sidebar__name">Acme staging</span><span class="hs-sidebar__trail">Staging</span></button>
+      <button class="hs-sidebar__row" style="border: 0; background: transparent; text-align: left; width: 100%;"><svg class="hs-sidebar__glyph" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2 14 5 8 8 2 5z"/><path d="m2 8.4 6 3 6-3"/></svg><span class="hs-sidebar__name">Local dev</span></button>
+      <button class="hs-sidebar__row" style="border: 0; background: transparent; text-align: left; width: 100%;"><svg class="hs-sidebar__glyph" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2 14 5 8 8 2 5z"/><path d="m2 8.4 6 3 6-3"/></svg><span class="hs-sidebar__name">Prod read-only</span></button>
+      <div class="hs-sidebar__label">Hosts</div>
+      <button class="hs-sidebar__row" style="border: 0; background: transparent; text-align: left; width: 100%;"><svg class="hs-sidebar__glyph" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c1.8 2 1.8 10 0 12M8 2C6.2 4 6.2 12 8 14"/></svg><span class="hs-sidebar__name">System hosts</span><span class="hs-sidebar__trail">42</span></button>
+      <button class="hs-sidebar__row is-child" style="border: 0; background: transparent; text-align: left; width: 100%;"><span class="hs-sidebar__name">Acme services</span><span class="hs-sidebar__trail">14</span></button>
+      <button class="hs-sidebar__row is-child" style="border: 0; background: transparent; text-align: left; width: 100%;"><span class="hs-sidebar__name">Ad blocking</span><span class="hs-sidebar__trail">180</span></button>
+      <div class="hs-sidebar__label">Projects</div>
+      <button class="hs-sidebar__row" style="border: 0; background: transparent; text-align: left; width: 100%;"><svg class="hs-sidebar__glyph" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4.5h4l1.2 1.5H14v6.5H2z"/></svg><span class="hs-sidebar__name">acme/web</span></button>
+      <button class="hs-sidebar__row is-child" style="border: 0; background: transparent; text-align: left; width: 100%;"><span class="hs-sidebar__name">.env.local</span></button>
+      <button class="hs-sidebar__row is-child" style="border: 0; background: transparent; text-align: left; width: 100%;"><span class="hs-sidebar__name">.env.example</span></button>
+      <div class="hs-sidebar__label">Tools</div>
+      <button class="hs-sidebar__row" style="border: 0; background: transparent; text-align: left; width: 100%;"><svg class="hs-sidebar__glyph" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.8 2 4 9h3.4L7.2 14 12 7H8.6z"/></svg><span class="hs-sidebar__name">Ports</span><span class="hs-sidebar__trail">3</span></button>
+    </div>
+  </div>
+  <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column;">
+    <div class="hs-toolbar">
+      <div class="hs-toolbar__titles"><div class="hs-toolbar__title">Acme staging</div><div class="hs-toolbar__path">Profile · last activated 2 days ago</div></div>
+      <div class="hs-toolbar__spacer"></div>
+      <span class="hs-chip hs-chip--staging" style="margin-right: 4px;">Staging</span>
+      <button class="hs-btn">Duplicate</button>
+      <button class="hs-btn hs-btn--primary">Activate</button>
+    </div>
+    <div style="flex-grow: 1; min-height: 0; padding: 20px 24px 24px; display: flex; flex-direction: column; gap: 20px;">
+      <div class="hs-banner hs-banner--info" style="flex: none;"><svg class="hs-banner__glyph" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 7.2v4M8 4.9v.9"/></svg><div class="hs-banner__body"><div class="hs-banner__title">Activating rewrites 14 hosts entries, swaps 2 .env files and sets 3 shell exports</div><div class="hs-banner__text">Local dev is active now. Its state is snapshotted first, so switching back is one press.</div></div><div class="hs-banner__actions"><button class="hs-btn">Review changes</button></div></div>
+      <div style="flex: none; display: flex; flex-direction: column; gap: 8px;"><div class="text-menu-label" style="color: var(--ink-secondary); padding: 0 2px;">Hosts blocks</div><div class="hs-pane">
+        <div class="hs-row"><span class="hs-row__glyph-well"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c1.8 2 1.8 10 0 12M8 2C6.2 4 6.2 12 8 14"/></svg></span><div class="hs-row__text"><div class="hs-row__title">Acme services</div><div class="hs-row__sub">127.0.0.1 → 14 entries</div></div><div class="hs-row__trail"><button class="hs-switch" role="switch" aria-checked="false" aria-label="Acme services, off in this profile" style="border: 0; background: transparent; padding: 0;"><span class="hs-switch__track"><span class="hs-switch__knob"></span></span></button></div></div>
+        <div class="hs-row"><span class="hs-row__glyph-well"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c1.8 2 1.8 10 0 12M8 2C6.2 4 6.2 12 8 14"/></svg></span><div class="hs-row__text"><div class="hs-row__title">Staging overrides</div><div class="hs-row__sub">10.4.1.20 → api.acme.test, auth.acme.test</div></div><div class="hs-row__trail"><button class="hs-switch is-on" role="switch" aria-checked="true" aria-label="Staging overrides, on in this profile" style="border: 0; background: transparent; padding: 0;"><span class="hs-switch__track"><span class="hs-switch__knob"></span></span></button></div></div>
+        <div class="hs-row"><span class="hs-row__glyph-well"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c1.8 2 1.8 10 0 12M8 2C6.2 4 6.2 12 8 14"/></svg></span><div class="hs-row__text"><div class="hs-row__title">Ad blocking</div><div class="hs-row__sub">0.0.0.0 → 180 entries</div></div><div class="hs-row__trail"><button class="hs-switch is-on" role="switch" aria-checked="true" aria-label="Ad blocking, on in this profile" style="border: 0; background: transparent; padding: 0;"><span class="hs-switch__track"><span class="hs-switch__knob"></span></span></button></div></div>
+        </div></div>
+      <div style="flex: none; display: flex; flex-direction: column; gap: 8px;"><div class="text-menu-label" style="color: var(--ink-secondary); padding: 0 2px;">Environment files</div><div class="hs-pane">
+        <div class="hs-row"><span class="hs-row__glyph-well"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="2.5" width="10" height="11" rx="1.2"/><path d="M5.4 6h5.2M5.4 8.4h5.2M5.4 10.8h3"/></svg></span><div class="hs-row__text"><div class="hs-row__title">acme/web</div><div class="hs-row__sub">.env.staging → .env.local</div></div><div class="hs-row__trail"><span class="hs-chip hs-chip--staging">Staging</span><button class="hs-btn hs-btn--sm">Change</button></div></div>
+        <div class="hs-row"><span class="hs-row__glyph-well"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="2.5" width="10" height="11" rx="1.2"/><path d="M5.4 6h5.2M5.4 8.4h5.2M5.4 10.8h3"/></svg></span><div class="hs-row__text"><div class="hs-row__title">acme/worker</div><div class="hs-row__sub">.env.staging → .env</div></div><div class="hs-row__trail"><span class="hs-chip hs-chip--staging">Staging</span><button class="hs-btn hs-btn--sm">Change</button></div></div>
+        <div class="hs-row"><span class="hs-row__glyph-well"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="2.5" width="10" height="11" rx="1.2"/><path d="M5.4 6h5.2M5.4 8.4h5.2M5.4 10.8h3"/></svg></span><div class="hs-row__text"><div class="hs-row__title">acme/admin</div><div class="hs-row__sub">No environment file linked</div></div><div class="hs-row__trail"><button class="hs-btn hs-btn--sm">Link…</button></div></div>
+        </div></div>
+      <div style="flex: none; display: flex; flex-direction: column; gap: 8px;"><div class="text-menu-label" style="color: var(--ink-secondary); padding: 0 2px;">Shell exports</div><div class="hs-pane">
+        <div class="hs-kv"><div class="hs-kv__key">AWS_PROFILE</div><div class="hs-kv__value">acme-staging</div><div class="hs-kv__trail"></div></div>
+        <div class="hs-kv"><div class="hs-kv__key">KUBECONFIG</div><div class="hs-kv__value">~/.kube/acme-staging.yaml</div><div class="hs-kv__trail"></div></div>
+        <div class="hs-kv"><div class="hs-kv__key">STRIPE_ENV</div><div class="hs-kv__value">test</div><div class="hs-kv__trail"></div></div>
+        </div></div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":840}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

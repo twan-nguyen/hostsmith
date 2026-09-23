@@ -1,0 +1,18 @@
+<!-- @dsCard group="Editors" height=270 subtitle="A .env variable, masked by default" -->
+<div class="p">
+  <div class="hs-pane">
+    <div class="hs-kv"><div class="hs-kv__key">NODE_ENV</div><div class="hs-kv__value">development</div><div class="hs-kv__trail"><span class="hs-chip hs-chip--local">Local</span></div></div>
+    <div class="hs-kv"><div class="hs-kv__key">API_BASE_URL</div><div class="hs-kv__value">https://api.acme.test</div><div class="hs-kv__trail"></div></div>
+    <div class="hs-kv">
+      <div class="hs-kv__key">STRIPE_SECRET_KEY</div>
+      <div class="hs-kv__value is-masked">••••••••••••••••••••</div>
+      <div class="hs-kv__trail"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" style="color:var(--ink-secondary)"><rect x="3.5" y="7" width="9" height="6" rx="1.2"/><path d="M5.8 7V5.2a2.2 2.2 0 0 1 4.4 0V7"/></svg><span class="hs-btn hs-btn--sm">Reveal</span></div>
+    </div>
+    <div class="hs-kv is-added"><div class="hs-kv__key">SENTRY_DSN</div><div class="hs-kv__value">https://ingest.sentry.test/4</div><div class="hs-kv__trail"><span class="hs-status"><span class="hs-dot hs-dot--warn"></span><span class="hs-status__label">Added</span></span></div></div>
+    <div class="hs-kv is-removed"><div class="hs-kv__key">LEGACY_API_KEY</div><div class="hs-kv__value">ak_live_4f21</div><div class="hs-kv__trail"></div></div>
+    <div class="hs-kv"><div class="hs-kv__key">REDIS_URL</div><div class="hs-kv__value is-masked">Missing — in .env.example</div><div class="hs-kv__trail"><span class="hs-btn hs-btn--sm">Add</span></div></div>
+  </div>
+</div>
+<style>
+  .p { background: var(--surface-window); padding: var(--space-6); }
+</style>

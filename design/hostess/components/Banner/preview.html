@@ -1,0 +1,35 @@
+<!-- @dsCard group="Status" height=290 subtitle="States what will change, or what went wrong" -->
+<div class="p">
+  <div class="hs-banner hs-banner--info">
+    <svg class="hs-banner__glyph" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.25"/><path d="M8 7.2v4M8 4.9v.9"/></svg>
+    <div class="hs-banner__body">
+      <div class="hs-banner__title">Activating Staging rewrites 14 hosts entries and swaps 2 .env files</div>
+      <div class="hs-banner__text">Nothing is written until you press Activate. The previous state is kept as a snapshot.</div>
+    </div>
+    <div class="hs-banner__actions"><span class="hs-btn">Review</span><span class="hs-btn hs-btn--primary">Activate</span></div>
+  </div>
+  <div class="hs-banner hs-banner--warning">
+    <svg class="hs-banner__glyph" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2.2 14.4 13.4H1.6z"/><path d="M8 6.4v3.2M8 11.3v.7"/></svg>
+    <div class="hs-banner__body">
+      <div class="hs-banner__title">3 variables in .env.example are missing here</div>
+      <div class="hs-banner__text">STRIPE_WEBHOOK_SECRET, SENTRY_DSN, REDIS_URL</div>
+    </div>
+    <div class="hs-banner__actions"><span class="hs-btn">Add all</span></div>
+  </div>
+  <div class="hs-banner hs-banner--danger">
+    <svg class="hs-banner__glyph" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.25"/><path d="m5.9 5.9 4.2 4.2M10.1 5.9l-4.2 4.2"/></svg>
+    <div class="hs-banner__body">
+      <div class="hs-banner__title">Could not write /etc/hosts</div>
+      <div class="hs-banner__text">Administrator access was denied. Try again and approve the prompt.</div>
+    </div>
+    <div class="hs-banner__actions"><span class="hs-btn">Try again</span></div>
+  </div>
+  <div class="hs-banner hs-banner--success">
+    <svg class="hs-banner__glyph" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.25"/><path d="m5.2 8.2 2 2 3.6-4.2"/></svg>
+    <div class="hs-banner__body"><div class="hs-banner__title">Applied 12 entries to /etc/hosts</div></div>
+    <div class="hs-banner__actions"><span class="hs-btn hs-btn--plain">Undo</span></div>
+  </div>
+</div>
+<style>
+  .p { background: var(--surface-window); padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-5); }
+</style>

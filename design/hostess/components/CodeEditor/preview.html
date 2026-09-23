@@ -1,0 +1,23 @@
+<!-- @dsCard group="Editors" height=300 subtitle="The hosts file, syntax coloured and foldable" -->
+<div class="p">
+  <div class="hs-editor">
+    <div class="hs-editor__gutter">1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10</div>
+    <div class="hs-editor__code">
+<div class="hs-editor__line"><span class="tok-comment"># Hostess — block: Acme services</span></div>
+<div class="hs-editor__line"><span class="tok-ip">127.0.0.1</span>       <span class="tok-host">api.acme.test</span></div>
+<div class="hs-editor__line is-current"><span class="tok-ip">127.0.0.1</span>       <span class="tok-host">auth.acme.test</span></div>
+<div class="hs-editor__line"><span class="tok-ip">127.0.0.1</span>       <span class="tok-host">cdn.acme.test</span></div>
+<div class="hs-editor__line is-off"><span class="tok-comment">#127.0.0.1      admin.acme.test</span></div>
+<div class="hs-editor__line"><span class="tok-ip">::1</span>             <span class="tok-host">api.acme.test</span></div>
+<div class="hs-editor__line">&nbsp;</div>
+<div class="hs-editor__line"><span class="tok-comment"># Hostess — block: Staging overrides</span></div>
+<div class="hs-editor__line is-added"><span class="tok-ip">10.4.1.20</span>       <span class="tok-host">api.acme.test</span></div>
+<div class="hs-editor__line is-removed"><span class="tok-ip">10.4.1.19</span>       <span class="tok-host">api.acme.test</span></div>
+    </div>
+  </div>
+  <div class="cap">Line 5 is off: Hostess comments an entry out rather than deleting it, so nothing is ever lost. Lines 9–10 are the pending diff.</div>
+</div>
+<style>
+  .p { background: var(--surface-window); padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-4); }
+  .cap { font-size: 11px; line-height: 15px; color: var(--ink-secondary); }
+</style>

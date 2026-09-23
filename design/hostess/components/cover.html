@@ -1,0 +1,39 @@
+<!-- @dsCard height=300 -->
+<div class="cover">
+  <svg class="art" width="960" height="300" viewBox="0 0 960 300" aria-hidden="true">
+    <!-- blocks: accent-bright 248×236 slab · ink-primary 160×112 (bleeds right) · env-staging 76×108 · env-local 68×108 (bleeds right) -->
+    <!-- arrangement: one clay slab, a slate block above two narrow environment bands running off the right edge — a sidebar and its rows, seen as colour -->
+    <!-- pattern: four hairline rules crossing the blocks at one spacing pitch. Chosen because Hostess is serif-titled, warm and drawn with borders, not shadows: the rules are the hairlines that structure every screen -->
+    <!-- scales: x = 536, 784, 800, 960 on space-6 (16px) gaps; rule pitch 48 = space-9 + space-6; block rx radius-md; rule stroke hairline-width in hairline-strong -->
+    <rect class="clay" x="536" y="32" width="248" height="236"/>
+    <rect class="slate" x="800" y="32" width="160" height="112"/>
+    <rect class="staging" x="800" y="160" width="76" height="108"/>
+    <rect class="local" x="892" y="160" width="68" height="108"/>
+    <g class="rules">
+      <line x1="512" y1="80" x2="960" y2="80"/>
+      <line x1="512" y1="128" x2="960" y2="128"/>
+      <line x1="512" y1="176" x2="960" y2="176"/>
+      <line x1="512" y1="224" x2="960" y2="224"/>
+    </g>
+  </svg>
+  <div class="name">Hostess</div>
+  <div class="tagline">Hosts, .env and ports — from the menu bar.</div>
+</div>
+<style>
+  .cover { position: relative; width: 960px; height: 300px; background: var(--surface-window); overflow: hidden; }
+  .art { position: absolute; inset: 0; }
+  .clay { fill: var(--accent-bright); rx: var(--radius-md); }
+  .slate { fill: var(--ink-primary); rx: var(--radius-md); }
+  .staging { fill: var(--env-staging); rx: var(--radius-md); }
+  .local { fill: var(--env-local); rx: var(--radius-md); }
+  .rules line { stroke: var(--hairline-strong); stroke-width: var(--hairline-width); }
+  .name {
+    position: absolute; left: 56px; top: 96px; width: 440px;
+    font-family: var(--font-display); font-size: 96px; line-height: 0.95; font-weight: 400; letter-spacing: 0;
+    color: var(--ink-primary);
+  }
+  .tagline {
+    position: absolute; left: 56px; top: 212px; width: 440px;
+    font-family: var(--font-sans); font-size: 14px; line-height: 20px; color: var(--ink-secondary);
+  }
+</style>

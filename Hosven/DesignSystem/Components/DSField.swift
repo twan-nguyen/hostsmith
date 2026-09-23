@@ -1,13 +1,14 @@
 import SwiftUI
 
-/// Labeled text field block aligned with the dark design system.
-/// Renders a tiny uppercase label, themed input box, and optional helper row.
+/// Labeled field block: `textMenuLabel` label above a `DSTextField`, with an
+/// optional helper row. Legacy wrapper around `DSTextField`; keep for sheets.
 struct DSField<Helper: View>: View {
     let label: String
     @Binding var text: String
     var prompt: String? = nil
     var monospaced: Bool = false
     var autocorrect: Bool = true
+    var invalidReason: String? = nil
     @ViewBuilder var helper: () -> Helper
 
     init(
@@ -16,6 +17,7 @@ struct DSField<Helper: View>: View {
         prompt: String? = nil,
         monospaced: Bool = false,
         autocorrect: Bool = true,
+        invalidReason: String? = nil,
         @ViewBuilder helper: @escaping () -> Helper = { EmptyView() }
     ) {
         self.label = label
@@ -23,32 +25,23 @@ struct DSField<Helper: View>: View {
         self.prompt = prompt
         self.monospaced = monospaced
         self.autocorrect = autocorrect
+        self.invalidReason = invalidReason
         self.helper = helper
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: DS.Spacing.space3) {
             Text(label)
-                .font(.dsLabel)
-                .foregroundStyle(Color.dsTextSecondary)
+                .font(DS.Text.textMenuLabel)
+                .foregroundStyle(DS.Colors.inkSecondary)
 
-            TextField(
-                "",
+            DSTextField(
+                placeholder: prompt ?? "",
                 text: $text,
-                prompt: prompt.map { Text($0).foregroundStyle(Color.dsTextTertiary) }
+                mono: monospaced,
+                invalidReason: invalidReason,
+                autocorrect: autocorrect
             )
-            .textFieldStyle(.plain)
-            .font(monospaced ? .system(size: 12, design: .monospaced) : .dsBody)
-            .foregroundStyle(Color.dsTextPrimary)
-            .autocorrectionDisabled(!autocorrect)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(Color.white.opacity(0.04))
-            .overlay(
-                RoundedRectangle(cornerRadius: DSRadius.md)
-                    .stroke(Color.dsBorderPrimary, lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: DSRadius.md))
 
             helper()
         }

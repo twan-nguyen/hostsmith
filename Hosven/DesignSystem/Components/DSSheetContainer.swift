@@ -1,10 +1,9 @@
 import SwiftUI
 
-/// Themed shell for modal sheets so popups stay consistent with the dark
-/// design system. Provides a header (title + optional subtitle), a body slot,
-/// and a footer slot for action buttons.
-///
-/// Reference: docs/mockup-reference.md.
+/// Shell for modal sheets: `surfaceRaised`, header (title in the serif
+/// `textTitle`, optional subtitle in `textCallout`), body slot, footer slot.
+/// Footer convention: `Huỷ` (bordered, cancel) first, the one default action
+/// (`primary` or `dangerFill`, `lg`) last.
 struct DSSheetContainer<Body: View, Footer: View>: View {
     let title: String
     var subtitle: String? = nil
@@ -14,39 +13,34 @@ struct DSSheetContainer<Body: View, Footer: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            divider
             bodyContent()
-                .padding(.horizontal, DSSpacing.p5)
-                .padding(.vertical, DSSpacing.p4)
-            divider
-            HStack(spacing: DSSpacing.p2) { footer() }
-                .padding(.horizontal, DSSpacing.p5)
-                .padding(.vertical, DSSpacing.p3)
+                .padding(.horizontal, DS.Spacing.space8)
+                .padding(.vertical, DS.Spacing.space6)
+            HStack(spacing: DS.Spacing.space4) {
+                Spacer(minLength: 0)
+                footer()
+            }
+            .padding(.horizontal, DS.Spacing.space8)
+            .padding(.bottom, DS.Spacing.space8)
+            .padding(.top, DS.Spacing.space4)
         }
-        .background(Color.dsBackground)
-        .preferredColorScheme(.dark)
+        .background(DS.Colors.surfaceRaised)
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: DS.Spacing.space2) {
             Text(title)
-                .font(.dsTitle)
-                .foregroundStyle(Color.dsTextPrimary)
+                .font(DS.Text.textTitle)
+                .foregroundStyle(DS.Colors.inkPrimary)
             if let subtitle, !subtitle.isEmpty {
                 Text(subtitle)
-                    .font(.dsCaption)
-                    .foregroundStyle(Color.dsTextSecondary)
+                    .font(DS.Text.textCallout)
+                    .foregroundStyle(DS.Colors.inkSecondary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, DSSpacing.p5)
-        .padding(.top, DSSpacing.p5)
-        .padding(.bottom, DSSpacing.p4)
-    }
-
-    private var divider: some View {
-        Rectangle()
-            .fill(Color.dsBorderTertiary)
-            .frame(height: 1)
+        .padding(.horizontal, DS.Spacing.space8)
+        .padding(.top, DS.Spacing.space8)
+        .padding(.bottom, DS.Spacing.space4)
     }
 }
