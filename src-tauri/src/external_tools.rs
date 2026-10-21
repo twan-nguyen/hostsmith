@@ -129,6 +129,31 @@ fn existing(path: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+/// What a tool may be handed. A terminal gets folders only: given a file it
+/// may run it, as Terminal does with `.command` and `.sh` files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Target {
+    Directory,
+    FileOrDirectory,
+}
+
+/// `path` as `existing` checks it, and of the kind `target` allows. The
+/// checks follow symlinks, so they apply to what the tool would open.
+fn openable(path: &str, target: Target) -> Result<PathBuf, String> {
+    let path = existing(path)?;
+    let metadata =
+        std::fs::metadata(&path).map_err(|e| format!("Không đọc được {}: {e}", path.display()))?;
+    match target {
+        Target::Directory if !metadata.is_dir() => {
+            Err(format!("{} không phải thư mục", path.display()))
+        }
+        Target::FileOrDirectory if !metadata.is_dir() && !metadata.is_file() => {
+            Err(format!("{} không phải file hay thư mục", path.display()))
+        }
+        _ => Ok(path),
+    }
+}
+
 fn open(args: &[&OsStr]) -> Result<(), String> {
     let out = Command::new("/usr/bin/open")
         .args(args)
@@ -146,9 +171,9 @@ fn open(args: &[&OsStr]) -> Result<(), String> {
     })
 }
 
-fn open_with(app: Option<&App>, missing: &str, path: &str) -> Result<(), String> {
+fn open_with(app: Option<&App>, missing: &str, path: &str, target: Target) -> Result<(), String> {
     let app = app.ok_or(missing)?;
-    let path = existing(path)?;
+    let path = openable(path, target)?;
     open(&[
         OsStr::new("-b"),
         OsStr::new(&app.bundle_id),
@@ -177,6 +202,7 @@ pub async fn tools_open_in_terminal(path: String) -> Result<(), String> {
             detected().terminal.as_ref(),
             "Không tìm thấy ứng dụng terminal",
             &path,
+            Target::Directory,
         )
     })
     .await
@@ -189,6 +215,7 @@ pub async fn tools_open_in_editor(path: String) -> Result<(), String> {
             detected().editor.as_ref(),
             "Không tìm thấy trình soạn thảo code",
             &path,
+            Target::FileOrDirectory,
         )
     })
     .await
@@ -283,8 +310,45 @@ mod tests {
     #[test]
     fn says_which_tool_is_missing() {
         assert_eq!(
-            open_with(None, "Không tìm thấy ứng dụng terminal", "/tmp"),
+            open_with(
+                None,
+                "Không tìm thấy ứng dụng terminal",
+                "/tmp",
+                Target::Directory
+            ),
             Err("Không tìm thấy ứng dụng terminal".into())
         );
+    }
+
+    #[test]
+    fn a_terminal_gets_folders_and_an_editor_files_or_folders() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = temp_dir();
+        let script = dir.join("run.command");
+        fs::write(&script, "#!/bin/sh\necho hi\n").unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let link = dir.join("link");
+        std::os::unix::fs::symlink(&script, &link).unwrap();
+        let (dir_text, script_text, link_text) = (
+            dir.to_str().unwrap(),
+            script.to_str().unwrap(),
+            link.to_str().unwrap(),
+        );
+
+        assert_eq!(openable(dir_text, Target::Directory), Ok(dir.clone()));
+        assert!(openable(script_text, Target::Directory).is_err());
+        // A link to a script is judged by the script it points at.
+        assert!(openable(link_text, Target::Directory).is_err());
+        assert!(openable("/definitely/not/here", Target::Directory).is_err());
+
+        assert_eq!(
+            openable(script_text, Target::FileOrDirectory),
+            Ok(script.clone())
+        );
+        assert_eq!(openable(dir_text, Target::FileOrDirectory), Ok(dir.clone()));
+        // A device is neither a file nor a folder.
+        assert!(openable("/dev/null", Target::FileOrDirectory).is_err());
+        fs::remove_dir_all(dir).unwrap();
     }
 }

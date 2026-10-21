@@ -56,6 +56,9 @@ pub fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), Str
     write_atomic(path, text.as_bytes())
 }
 
+/// Each call gets its own temporary name, created fresh, so two saves of the
+/// same file at once never write into one temporary file, and a name planted
+/// in the directory beforehand is never followed or reused.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let dir = path.parent().ok_or("Đường dẫn không hợp lệ")?;
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
@@ -63,9 +66,12 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let tmp = dir.join(format!(
         ".{}.{}.tmp",
         name.to_string_lossy(),
-        std::process::id()
+        uuid::Uuid::new_v4()
     ));
-    let result = fs::File::create(&tmp)
+    let result = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&tmp)
         .and_then(|mut file| {
             file.write_all(bytes)?;
             file.sync_all()
@@ -99,6 +105,30 @@ mod tests {
         assert!(text.ends_with("}\n"));
         let leftovers: Vec<_> = fs::read_dir(path.parent().unwrap()).unwrap().collect();
         assert_eq!(leftovers.len(), 1, "the temporary file is renamed away");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn concurrent_saves_of_one_file_do_not_share_a_temporary_file() {
+        let dir = temp_dir();
+        let path = dir.join("profiles.json");
+        let writers: Vec<_> = (0..8)
+            .map(|n| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    let text = format!("{n}").repeat(64 * 1024);
+                    write_atomic(&path, text.as_bytes())
+                })
+            })
+            .collect();
+        for writer in writers {
+            writer.join().unwrap().unwrap();
+        }
+        // Whichever save landed last, the file is one save, whole.
+        let text = fs::read_to_string(&path).unwrap();
+        assert_eq!(text.len(), 64 * 1024);
+        assert!(text.chars().all(|c| text.starts_with(c)));
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
         fs::remove_dir_all(dir).unwrap();
     }
 

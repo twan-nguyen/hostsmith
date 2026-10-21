@@ -42,9 +42,15 @@ fn validate(repo: &str, relative: &str) -> Result<PathBuf, String> {
     Ok(repo)
 }
 
+/// The repo is any folder the user picked, so its config must not make a
+/// read-only question start a filesystem monitor, which `core.fsmonitor` can
+/// name as a command.
+const NO_FSMONITOR: [&str; 2] = ["-c", "core.fsmonitor="];
+
 /// git's exit status, or `None` when git could not run.
 fn git(repo: &Path, args: &[&str]) -> Option<i32> {
     Command::new("git")
+        .args(NO_FSMONITOR)
         .args(args)
         .current_dir(repo)
         .stdin(Stdio::null())
@@ -55,31 +61,63 @@ fn git(repo: &Path, args: &[&str]) -> Option<i32> {
         .code()
 }
 
+/// A path is a name, never a glob or a `:(magic)` pathspec. `ls-files` takes
+/// `--literal-pathspecs` for that. `check-ignore` refuses that option but
+/// never expands globs, and a leading `./` keeps a name that starts with `:`
+/// from reading as magic.
 fn check(repo: &Path, relative: &str) -> Exposure {
     if git(repo, &["rev-parse", "--is-inside-work-tree"]) != Some(0) {
         return Exposure::Safe;
     }
-    if git(repo, &["ls-files", "--error-unmatch", "--", relative]) == Some(0) {
+    let tracked = git(
+        repo,
+        &[
+            "--literal-pathspecs",
+            "ls-files",
+            "--error-unmatch",
+            "--",
+            relative,
+        ],
+    );
+    if tracked == Some(0) {
         return Exposure::Tracked;
     }
-    if git(repo, &["check-ignore", "-q", "--", relative]) == Some(0) {
+    let path = format!("./{relative}");
+    if git(repo, &["check-ignore", "-q", "--", &path]) == Some(0) {
         Exposure::Safe
     } else {
         Exposure::NotIgnored
     }
 }
 
-/// `existing` with `relative` on a line of its own at the end. A file that
-/// already lists it exactly is left as it is.
-fn appended(existing: &str, relative: &str) -> Option<String> {
-    if existing.lines().any(|line| line.trim_end() == relative) {
+/// The `.gitignore` line for `relative`. A leading `#` would make it a
+/// comment and a leading `!` a negation, so either is escaped. git drops
+/// trailing spaces from a line, which would name another file, so such a
+/// name is refused.
+fn ignore_line(relative: &str) -> Result<String, String> {
+    if relative.ends_with(' ') {
+        return Err(format!(
+            "Không thêm được \"{relative}\" vào .gitignore vì tên kết thúc bằng dấu cách"
+        ));
+    }
+    Ok(if relative.starts_with(['#', '!']) {
+        format!("\\{relative}")
+    } else {
+        relative.to_string()
+    })
+}
+
+/// `existing` with `line` on a line of its own at the end. A file that
+/// already holds that line exactly is left as it is.
+fn appended(existing: &str, line: &str) -> Option<String> {
+    if existing.lines().any(|current| current.trim_end() == line) {
         return None;
     }
     let mut content = existing.to_string();
     if !content.is_empty() && !content.ends_with('\n') {
         content.push('\n');
     }
-    content.push_str(relative);
+    content.push_str(line);
     content.push('\n');
     Some(content)
 }
@@ -87,13 +125,14 @@ fn appended(existing: &str, relative: &str) -> Option<String> {
 /// Lists the file in the repo's `.gitignore`, creating it if needed, then asks
 /// git again: a tracked file stays tracked until it is removed from the index.
 fn add_to_gitignore(repo: &Path, relative: &str) -> Result<Exposure, String> {
+    let line = ignore_line(relative)?;
     let path = repo.join(".gitignore");
     let existing = match std::fs::read_to_string(&path) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(error) => return Err(format!("Không đọc được .gitignore: {error}")),
     };
-    if let Some(content) = appended(&existing, relative) {
+    if let Some(content) = appended(&existing, &line) {
         config::write_atomic(&path, content.as_bytes())
             .map_err(|e| format!("Không ghi được .gitignore: {e}"))?;
     }
@@ -190,6 +229,43 @@ mod tests {
             appended(".env.local\n", ".env").as_deref(),
             Some(".env.local\n.env\n")
         );
+    }
+
+    #[test]
+    fn escapes_comment_and_negation_marks_and_refuses_trailing_spaces() {
+        assert_eq!(ignore_line(".env").as_deref(), Ok(".env"));
+        assert_eq!(ignore_line("#notes").as_deref(), Ok(r"\#notes"));
+        assert_eq!(ignore_line("!keep").as_deref(), Ok(r"\!keep"));
+        assert_eq!(ignore_line("dir/#x").as_deref(), Ok("dir/#x"));
+        assert!(ignore_line(".env ").is_err());
+        assert_eq!(appended("\\#notes\n", r"\#notes"), None);
+    }
+
+    #[test]
+    fn names_are_never_read_as_patterns() {
+        if !git_available() {
+            eprintln!("git is not installed; skipping");
+            return;
+        }
+        let dir = repo();
+        fs::write(dir.join(".env.local"), "B=2\n").unwrap();
+        assert_eq!(git(&dir, &["add", "--", ".env.local"]), Some(0));
+        // As a glob, `.env*` would match the tracked file.
+        assert_eq!(check(&dir, ".env*"), Exposure::NotIgnored);
+        assert_eq!(check(&dir, ".env.local"), Exposure::Tracked);
+
+        fs::write(dir.join("#notes"), "x\n").unwrap();
+        assert_eq!(add_to_gitignore(&dir, "#notes"), Ok(Exposure::Safe));
+        assert_eq!(
+            fs::read_to_string(dir.join(".gitignore")).unwrap(),
+            "\\#notes\n"
+        );
+
+        // Read as magic, `:x` would be a different path.
+        fs::write(dir.join(":x"), "x\n").unwrap();
+        assert_eq!(check(&dir, ":x"), Exposure::NotIgnored);
+        assert_eq!(add_to_gitignore(&dir, ":x"), Ok(Exposure::Safe));
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

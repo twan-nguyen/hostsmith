@@ -1,10 +1,7 @@
-//! Replaces the hosts file as root: the content goes to a private temporary
-//! file first, and the root script only copies that file, so no text the user
-//! typed ever becomes part of a command.
+//! Replaces the hosts file as root. The content goes to the root script on
+//! its standard input, so no text the user typed ever becomes part of a
+//! command, and nothing is staged in a file another process could swap.
 
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 use crate::platform::{HOSTS_PATH, HostsWriter, RunOutcome, SharedRunner, WriteOutcome};
@@ -21,38 +18,21 @@ impl SystemHostsWriter {
 
 impl HostsWriter for SystemHostsWriter {
     fn write(&self, content: &str) -> WriteOutcome {
-        let tmp = std::env::temp_dir().join(format!("hosts_{}", uuid::Uuid::new_v4()));
-        if let Err(error) = write_private(&tmp, content) {
-            let _ = fs::remove_file(&tmp);
-            return WriteOutcome::Failed(format!("không tạo được file tạm: {error}"));
-        }
-        let outcome = self.runner.run(&write_script(&tmp));
-        if outcome != RunOutcome::Ok {
-            let _ = fs::remove_file(&tmp);
-        }
-        write_outcome(outcome)
+        write_outcome(
+            self.runner
+                .run_with_input(&write_script(), content.as_bytes()),
+        )
     }
 }
 
-/// Only this user can read the file: it may list internal hostnames.
-fn write_private(path: &Path, content: &str) -> std::io::Result<()> {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)?;
-    file.write_all(content.as_bytes())?;
-    file.sync_all()
-}
-
-/// The status reflects the copy alone. Once the file is in place a failed
-/// cache flush must still read as written, or a switch would roll the model
-/// back while the disk holds the new content.
-fn write_script(tmp: &Path) -> String {
-    let tmp = quote(&tmp.to_string_lossy());
+/// `cat` reads the whole input before anything else prints, and the status
+/// reflects the write alone. Once the file is in place a failed cache flush
+/// must still read as written, or a switch would roll the model back while
+/// the disk holds the new content.
+fn write_script() -> String {
     format!(
-        "cp {tmp} {HOSTS_PATH} && rm -f {tmp} || exit $?; \
-         dscacheutil -flushcache; killall -HUP mDNSResponder 2>/dev/null; exit 0"
+        "/bin/cat > {HOSTS_PATH} || exit $?; \
+         /usr/bin/dscacheutil -flushcache; /usr/bin/killall -HUP mDNSResponder 2>/dev/null; exit 0"
     )
 }
 
@@ -74,17 +54,18 @@ fn write_outcome(outcome: RunOutcome) -> WriteOutcome {
 }
 
 /// Where a backup of the hosts file taken at `now` goes, e.g.
-/// `/etc/hosts.backup.2026-10-21T06-05-00Z`. Colons are replaced because
-/// Finder shows them as slashes.
+/// `/etc/hosts.backup.2026-10-21T06-05-00.123Z`. Colons are replaced because
+/// Finder shows them as slashes; the milliseconds keep two backups in the
+/// same second apart.
 pub fn backup_path(now: jiff::Timestamp) -> PathBuf {
-    let stamp = now.strftime("%Y-%m-%dT%H-%M-%SZ");
+    let stamp = now.strftime("%Y-%m-%dT%H-%M-%S%.3fZ");
     PathBuf::from(format!("{HOSTS_PATH}.backup.{stamp}"))
 }
 
 /// The backup script. The name holds only digits and separators; it is quoted
 /// anyway, so every path in a root script is.
 pub fn backup_script(path: &Path) -> String {
-    format!("cp {HOSTS_PATH} {}", quote(&path.to_string_lossy()))
+    format!("/bin/cp {HOSTS_PATH} {}", quote(&path.to_string_lossy()))
 }
 
 #[cfg(test)]
@@ -94,15 +75,19 @@ mod tests {
     use super::*;
     use crate::platform::PrivilegedRunner;
 
-    /// Records scripts and answers with a fixed outcome instead of running.
+    /// Records scripts and their input, and answers with a fixed outcome
+    /// instead of running anything.
     struct Recorder {
         outcome: RunOutcome,
-        scripts: Mutex<Vec<String>>,
+        runs: Mutex<Vec<(String, Vec<u8>)>>,
     }
 
     impl PrivilegedRunner for Recorder {
-        fn run(&self, script: &str) -> RunOutcome {
-            self.scripts.lock().unwrap().push(script.to_string());
+        fn run_with_input(&self, script: &str, input: &[u8]) -> RunOutcome {
+            self.runs
+                .lock()
+                .unwrap()
+                .push((script.to_string(), input.to_vec()));
             self.outcome.clone()
         }
     }
@@ -110,15 +95,20 @@ mod tests {
     fn writer(outcome: RunOutcome) -> (SystemHostsWriter, Arc<Recorder>) {
         let recorder = Arc::new(Recorder {
             outcome,
-            scripts: Mutex::new(Vec::new()),
+            runs: Mutex::new(Vec::new()),
         });
         (SystemHostsWriter::new(recorder.clone()), recorder)
     }
 
-    fn tmp_in(script: &str) -> PathBuf {
-        let start = script.find('\'').unwrap() + 1;
-        let end = start + script[start..].find('\'').unwrap();
-        PathBuf::from(&script[start..end])
+    /// Every command a root script runs is named by its absolute path, so the
+    /// PATH it runs under never decides which program that is.
+    fn commands_are_absolute(script: &str) -> bool {
+        script
+            .split([';', '|', '&'])
+            .map(str::trim)
+            .filter(|step| !step.is_empty())
+            .filter_map(|step| step.split_whitespace().next())
+            .all(|command| command.starts_with('/') || command == "exit")
     }
 
     #[test]
@@ -128,12 +118,27 @@ mod tests {
     }
 
     #[test]
-    fn the_script_copies_then_flushes_without_letting_the_flush_fail_it() {
+    fn the_script_writes_its_input_then_flushes_without_letting_the_flush_fail_it() {
         assert_eq!(
-            write_script(Path::new("/var/folders/x/T/hosts_1")),
-            "cp '/var/folders/x/T/hosts_1' /etc/hosts && rm -f '/var/folders/x/T/hosts_1' || exit $?; \
-             dscacheutil -flushcache; killall -HUP mDNSResponder 2>/dev/null; exit 0"
+            write_script(),
+            "/bin/cat > /etc/hosts || exit $?; \
+             /usr/bin/dscacheutil -flushcache; /usr/bin/killall -HUP mDNSResponder 2>/dev/null; exit 0"
         );
+        assert!(commands_are_absolute(&write_script()));
+        assert!(commands_are_absolute(&backup_script(Path::new(
+            "/etc/hosts.backup.x"
+        ))));
+        assert!(!commands_are_absolute("cp a b; exit 0"));
+    }
+
+    #[test]
+    fn sends_the_content_on_standard_input() {
+        let (writer, recorder) = writer(RunOutcome::Ok);
+        assert_eq!(writer.write("127.0.0.1\tapi.test\n"), WriteOutcome::Written);
+        let runs = recorder.runs.lock().unwrap();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].0, write_script());
+        assert_eq!(runs[0].1, b"127.0.0.1\tapi.test\n");
     }
 
     #[test]
@@ -150,9 +155,9 @@ mod tests {
         assert_eq!(
             write_outcome(RunOutcome::Failed {
                 exit: 1,
-                stderr: "cp: /etc/hosts: Operation not permitted\n".into(),
+                stderr: "sh: /etc/hosts: Operation not permitted\n".into(),
             }),
-            WriteOutcome::Failed("cp: /etc/hosts: Operation not permitted".into())
+            WriteOutcome::Failed("sh: /etc/hosts: Operation not permitted".into())
         );
         assert_eq!(
             write_outcome(RunOutcome::Failed {
@@ -164,49 +169,22 @@ mod tests {
     }
 
     #[test]
-    fn writes_a_private_temp_file_for_the_root_script() {
-        use std::os::unix::fs::PermissionsExt;
-
-        // The recorder does not copy anything, so the temp file is still there
-        // to inspect; a real run removes it in the script.
-        let (writer, recorder) = writer(RunOutcome::Ok);
-        assert_eq!(writer.write("127.0.0.1\tapi.test\n"), WriteOutcome::Written);
-        let script = recorder.scripts.lock().unwrap()[0].clone();
-        let tmp = tmp_in(&script);
-        assert!(tmp.starts_with(std::env::temp_dir()));
-        assert_eq!(fs::read_to_string(&tmp).unwrap(), "127.0.0.1\tapi.test\n");
-        let mode = fs::metadata(&tmp).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600);
-        fs::remove_file(tmp).unwrap();
-    }
-
-    #[test]
-    fn removes_the_temp_file_when_the_write_does_not_land() {
-        for outcome in [
-            RunOutcome::Cancelled,
-            RunOutcome::Denied(-1),
-            RunOutcome::Failed {
-                exit: 1,
-                stderr: String::new(),
-            },
-        ] {
-            let (writer, recorder) = writer(outcome);
-            writer.write("x\n");
-            let tmp = tmp_in(&recorder.scripts.lock().unwrap()[0]);
-            assert!(!tmp.exists());
-        }
-    }
-
-    #[test]
-    fn names_backups_after_the_utc_time_without_colons() {
+    fn names_backups_after_the_utc_time_to_the_millisecond_without_colons() {
         let now: jiff::Timestamp = "2026-10-21T06:05:00.123Z".parse().unwrap();
         assert_eq!(
             backup_path(now),
-            PathBuf::from("/etc/hosts.backup.2026-10-21T06-05-00Z")
+            PathBuf::from("/etc/hosts.backup.2026-10-21T06-05-00.123Z")
         );
         assert_eq!(
             backup_script(&backup_path(now)),
-            "cp /etc/hosts '/etc/hosts.backup.2026-10-21T06-05-00Z'"
+            "/bin/cp /etc/hosts '/etc/hosts.backup.2026-10-21T06-05-00.123Z'"
+        );
+        let later: jiff::Timestamp = "2026-10-21T06:05:00.124Z".parse().unwrap();
+        assert_ne!(backup_path(now), backup_path(later));
+        let whole: jiff::Timestamp = "2026-10-21T06:05:00Z".parse().unwrap();
+        assert_eq!(
+            backup_path(whole),
+            PathBuf::from("/etc/hosts.backup.2026-10-21T06-05-00.000Z")
         );
     }
 }
