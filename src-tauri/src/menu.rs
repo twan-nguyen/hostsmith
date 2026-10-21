@@ -59,18 +59,34 @@ impl Shape {
 pub struct MenuState(Mutex<Option<Shape>>);
 
 /// Rebuilds the menu when the environments it lists have changed.
+///
+/// Called with the hosts model locked, so the menu is built later on the main
+/// thread rather than waited for here: a command running on the main thread
+/// may be waiting for that same lock.
 pub fn sync(app: &AppHandle, hosts: &Hosts) {
     let Some(state) = app.try_state::<MenuState>() else {
         return;
     };
     let shape = Shape::of(hosts);
-    let mut last = state.0.lock().unwrap_or_else(|p| p.into_inner());
-    if last.as_ref() == Some(&shape) {
-        return;
+    {
+        let mut last = state.0.lock().unwrap_or_else(|p| p.into_inner());
+        if last.as_ref() == Some(&shape) {
+            return;
+        }
+        *last = Some(shape.clone());
     }
-    match build(app, &shape).and_then(|menu| app.set_menu(menu)) {
-        Ok(_) => *last = Some(shape),
-        Err(error) => eprintln!("hosven: could not build the menu: {error}"),
+    let handle = app.clone();
+    let posted = app.run_on_main_thread(move || {
+        if let Err(error) = build(&handle, &shape).and_then(|menu| handle.set_menu(menu)) {
+            eprintln!("hosven: could not build the menu: {error}");
+            // Lets the next change try again.
+            if let Some(state) = handle.try_state::<MenuState>() {
+                *state.0.lock().unwrap_or_else(|p| p.into_inner()) = None;
+            }
+        }
+    });
+    if let Err(error) = posted {
+        eprintln!("hosven: could not schedule the menu: {error}");
     }
 }
 
