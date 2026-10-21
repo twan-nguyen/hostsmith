@@ -4,6 +4,7 @@ use tauri::{Manager, RunEvent};
 
 mod appearance;
 mod config;
+mod env;
 mod external_tools;
 mod git_exposure;
 mod hosts;
@@ -14,9 +15,6 @@ mod ports;
 mod profiles;
 mod settings;
 mod toast;
-// `suspend`, `resume` and `path` wait for the env watcher, which re-arms
-// after its own atomic saves.
-#[allow(dead_code)]
 mod watcher;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -43,6 +41,7 @@ pub fn run() {
                 external_tools::detected();
             });
             app.manage(hosts::HostsState::load());
+            app.manage(env::EnvState::load());
             match hosts::watch(app.handle()) {
                 Ok(watch) => {
                     app.manage(watch);
@@ -93,6 +92,30 @@ pub fn run() {
             external_tools::tools_open_chrome_dns,
             git_exposure::git_exposure,
             git_exposure::git_add_to_gitignore,
+            env::env_snapshot,
+            env::env_add_repo,
+            env::env_remove_repo,
+            env::env_rename_repo,
+            env::env_select,
+            env::env_discover,
+            env::env_add_entry,
+            env::env_update_entry,
+            env::env_duplicate_entry,
+            env::env_toggle_entry,
+            env::env_delete_entry,
+            env::env_select_variant,
+            env::env_add_missing,
+            env::env_discard,
+            env::env_set_raw_draft,
+            env::env_apply,
+            env::env_apply_raw,
+            env::env_reload_from_disk,
+            env::env_refresh_from_disk,
+            env::env_dismiss_conflict,
+            env::env_profile_save,
+            env::env_profile_apply,
+            env::env_profile_rename,
+            env::env_profile_delete,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

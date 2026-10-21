@@ -6,9 +6,7 @@
 //! to be re-armed.
 
 use std::ffi::OsString;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::path::Path;
 use std::time::Duration;
 
 use notify::{RecommendedWatcher, RecursiveMode};
@@ -22,9 +20,9 @@ pub enum Change {
     Missing,
 }
 
+/// Callers compare the file's content with what they last read or wrote, so
+/// Hosven's own saves need no special handling here.
 pub struct FileWatcher {
-    path: PathBuf,
-    suspended: Arc<AtomicBool>,
     // Dropping the debouncer stops the watch.
     _debouncer: Debouncer<RecommendedWatcher>,
 }
@@ -44,16 +42,9 @@ impl FileWatcher {
             .ok_or("Đường dẫn không hợp lệ")?
             .canonicalize()
             .map_err(|e| e.to_string())?;
-        let target = dir.join(&name);
-
-        let suspended = Arc::new(AtomicBool::new(false));
-        let quiet = suspended.clone();
-        let watched = target.clone();
+        let watched = dir.join(&name);
         let mut debouncer = new_debouncer(debounce, move |result: DebounceEventResult| {
             let Ok(events) = result else { return };
-            if quiet.load(Ordering::SeqCst) {
-                return;
-            }
             if events
                 .iter()
                 .any(|event| event.path.file_name() == Some(name.as_os_str()))
@@ -72,24 +63,8 @@ impl FileWatcher {
             .map_err(|e| e.to_string())?;
 
         Ok(Self {
-            path: target,
-            suspended,
             _debouncer: debouncer,
         })
-    }
-
-    /// The watched file, with its directory resolved.
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-
-    /// Silences callbacks, for the span of Hosven's own write.
-    pub fn suspend(&self) {
-        self.suspended.store(true, Ordering::SeqCst);
-    }
-
-    pub fn resume(&self) {
-        self.suspended.store(false, Ordering::SeqCst);
     }
 }
 
@@ -97,6 +72,7 @@ impl FileWatcher {
 mod tests {
     use super::*;
     use std::fs;
+    use std::path::PathBuf;
     use std::sync::mpsc::{Receiver, channel};
 
     const DEBOUNCE: Duration = Duration::from_millis(200);
@@ -149,18 +125,6 @@ mod tests {
             "ten writes arrived as {} callbacks",
             seen.len()
         );
-    }
-
-    #[test]
-    fn suspend_silences_callbacks() {
-        let (file, watcher, rx) = setup();
-        watcher.suspend();
-        fs::write(&file, "A=2\n").unwrap();
-        assert!(drain(&rx).is_empty());
-
-        watcher.resume();
-        fs::write(&file, "A=3\n").unwrap();
-        assert_eq!(rx.recv_timeout(WAIT), Ok(Change::Modified));
     }
 
     #[test]

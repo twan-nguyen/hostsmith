@@ -1,0 +1,35 @@
+{
+  "repos" : [
+    {
+      "id" : "6F1C2A52-6D0E-4D43-9A2B-3C1F0E9D8B7A",
+      "name" : "api",
+      "path" : "\/Users\/twan\/code\/api",
+      "profiles" : [
+        {
+          "capturedAt" : "2026-10-21T06:05:00Z",
+          "files" : [
+            {
+              "content" : "DB_HOST=staging.db\nDEBUG=false\n",
+              "relativePath" : ".env"
+            },
+            {
+              "content" : "# local overrides\nPORT=4000\n",
+              "relativePath" : ".env.local"
+            }
+          ],
+          "id" : "0B8E4C1D-2F3A-4B5C-8D6E-7F8091A2B3C4",
+          "name" : "staging"
+        }
+      ]
+    },
+    {
+      "id" : "A1B2C3D4-E5F6-4711-8899-AABBCCDDEEFF",
+      "name" : "web app",
+      "path" : "\/Users\/twan\/code\/web app",
+      "profiles" : [
+
+      ]
+    }
+  ],
+  "version" : 1
+}
