@@ -8,6 +8,7 @@ mod login_path;
 #[allow(dead_code)]
 mod platform;
 mod profiles;
+mod settings;
 #[allow(dead_code)]
 mod watcher;
 
@@ -19,9 +20,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
-            if let Some(window) = app.get_webview_window("main") {
-                appearance::apply_vibrancy(&window, true)?;
-            }
+            let settings = settings::SettingsState::load();
+            settings::apply(app.handle(), &settings.get())?;
+            app.manage(settings);
             app.manage(hosts::HostsState::load());
             match hosts::watch(app.handle()) {
                 Ok(watch) => {
@@ -58,6 +59,9 @@ pub fn run() {
             hosts::profiles_remove,
             hosts::profiles_set_exclusive,
             hosts::profiles_set_color,
+            settings::settings_get,
+            settings::settings_update,
+            settings::settings_preview_transparency,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
