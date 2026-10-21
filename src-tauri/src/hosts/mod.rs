@@ -22,7 +22,7 @@ use crate::profiles::{FileProfileStore, Profile, ProfileColor};
 use crate::watcher::FileWatcher;
 use model::ToastKind;
 pub use state::{EntryInput, Hosts, Outcome, Snapshot, Step};
-pub use switch::{SwitchPolicy, SwitchPreview};
+pub use switch::{ActiveState, SwitchPolicy, SwitchPreview};
 
 const EVENT: &str = "hosts-changed";
 
@@ -82,6 +82,7 @@ pub struct HostsServices {
 
 fn emit(app: &AppHandle, hosts: &Hosts) {
     let _ = app.emit(EVENT, hosts.snapshot());
+    crate::menu::sync(app, hosts);
 }
 
 fn mutate<T>(app: &AppHandle, state: &HostsState, change: impl FnOnce(&mut Hosts) -> T) -> T {

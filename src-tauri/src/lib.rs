@@ -10,6 +10,7 @@ mod git_exposure;
 mod hosts;
 mod hosts_writer;
 mod login_path;
+mod menu;
 mod platform;
 mod ports;
 mod profiles;
@@ -24,6 +25,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_deep_link::init())
+        .manage(menu::MenuState::default())
+        .on_menu_event(menu::handle)
         .setup(|app| {
             let settings = settings::SettingsState::load();
             settings::apply(app.handle(), &settings.get())?;
@@ -41,6 +44,7 @@ pub fn run() {
                 external_tools::detected();
             });
             app.manage(hosts::HostsState::load());
+            menu::sync(app.handle(), &app.state::<hosts::HostsState>().lock());
             app.manage(env::EnvState::load());
             match hosts::watch(app.handle()) {
                 Ok(watch) => {

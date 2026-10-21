@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -8,6 +9,8 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 export default defineConfig(() => ({
   plugins: [react(), tailwindcss()],
+  // Agent worktrees live under .claude/ and carry their own copies of the tests.
+  test: { include: ["src/**/*.test.ts"] },
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },
   },

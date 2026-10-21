@@ -125,3 +125,139 @@ export const settingsPreviewTransparency = (percent: number) =>
 
 export const onSettingsChanged = (handler: (settings: Settings) => void): Promise<UnlistenFn> =>
   listen<Settings>("settings-changed", (event) => handler(event.payload));
+
+// MARK: - Ports
+
+/** A repo Hosven knows; ports started from inside it count as yours. */
+export type KnownRepo = { name: string; path: string };
+
+export type PortOwner = { kind: "yours"; name: string } | { kind: "container"; name: string | null } | { kind: "unknown" };
+
+export type ListeningPort = {
+  id: string;
+  port: number;
+  process: string;
+  pid: number;
+  user: string;
+  cwd: string | null;
+  owner: PortOwner;
+  isSystem: boolean;
+  needsAttention: boolean;
+};
+
+export type PortsSnapshot = {
+  ports: ListeningPort[];
+  /** Milliseconds since the Unix epoch. */
+  scannedAt: number | null;
+  scanning: boolean;
+  toast: Toast | null;
+};
+
+export type KillOutcome = "freed" | "stillRunning" | "cancelled" | "failed";
+
+export const portsSnapshot = () => invoke<PortsSnapshot>("ports_snapshot");
+export const portsScan = (repos: KnownRepo[]) => invoke<PortsSnapshot>("ports_scan", { repos });
+export const portsKill = (pid: number, force: boolean, repos: KnownRepo[]) =>
+  invoke<KillOutcome>("ports_kill", { pid, force, repos });
+export const portsStopContainer = (name: string, repos: KnownRepo[]) =>
+  invoke<void>("ports_stop_container", { name, repos });
+
+export const onPortsChanged = (handler: (snapshot: PortsSnapshot) => void): Promise<UnlistenFn> =>
+  listen<PortsSnapshot>("ports-changed", (event) => handler(event.payload));
+
+// MARK: - External tools and git
+
+export type ExternalApp = { name: string; bundleId: string };
+export type Tools = { terminal: ExternalApp | null; editor: ExternalApp | null; chrome: boolean };
+
+export const toolsDetect = () => invoke<Tools>("tools_detect");
+export const toolsOpenInTerminal = (path: string) => invoke<void>("tools_open_in_terminal", { path });
+export const toolsOpenInEditor = (path: string) => invoke<void>("tools_open_in_editor", { path });
+export const toolsRevealInFinder = (path: string) => invoke<void>("tools_reveal_in_finder", { path });
+export const toolsOpenChromeDns = () => invoke<void>("tools_open_chrome_dns");
+
+export type Exposure = "safe" | "notIgnored" | "tracked";
+
+export const gitExposure = (repoPath: string, relativePath: string) =>
+  invoke<Exposure>("git_exposure", { repoPath, relativePath });
+export const gitAddToGitignore = (repoPath: string, relativePath: string) =>
+  invoke<Exposure>("git_add_to_gitignore", { repoPath, relativePath });
+
+// MARK: - Env
+
+export type EnvEntry = {
+  id: string;
+  key: string;
+  value: string;
+  comment: string;
+  enabled: boolean;
+  /** Written back with the `export ` prefix the line had. */
+  exported: boolean;
+  isBlankOrComment: boolean;
+  /** The line as it was, for blank and comment lines. */
+  rawLine?: string;
+};
+
+export type EnvEntryInput = { key: string; value: string; comment: string; exported?: boolean };
+
+/** How the file on disk differs from what Hosven last read or wrote. */
+export type EnvConflict = "changed" | "missing";
+export type DiscoveryState = "ok" | "repoMissing" | "envMissing";
+
+export type EnvRepo = {
+  id: string;
+  name: string;
+  path: string;
+  missing: boolean;
+  discovery: DiscoveryState;
+  files: { relativePath: string; dirty: boolean; conflict: EnvConflict | null }[];
+  profiles: { id: string; name: string; capturedAt: string; files: string[] }[];
+};
+
+export type EnvSnapshot = {
+  repos: EnvRepo[];
+  selectedRepo: string | null;
+  selectedFile: string | null;
+  entries: EnvEntry[];
+  text: string;
+  dirty: boolean;
+  pendingCount: number;
+  conflict: EnvConflict | null;
+  loadError: string | null;
+  missingKeys: string[];
+  toast: Toast | null;
+};
+
+export type EnvOutcome = { kind: "written" | "nothingToDo" | "conflict" };
+
+export const envSnapshot = () => invoke<EnvSnapshot>("env_snapshot");
+export const envAddRepo = (path: string) => invoke<void>("env_add_repo", { path });
+export const envRemoveRepo = (repoId: string) => invoke<void>("env_remove_repo", { repoId });
+export const envRenameRepo = (repoId: string, name: string) => invoke<void>("env_rename_repo", { repoId, name });
+export const envSelect = (repoId: string, relativePath: string | null) =>
+  invoke<void>("env_select", { repoId, relativePath });
+export const envDiscover = (repoId: string) => invoke<void>("env_discover", { repoId });
+export const envAddEntry = (input: EnvEntryInput) => invoke<void>("env_add_entry", { input });
+export const envUpdateEntry = (id: string, input: EnvEntryInput) => invoke<void>("env_update_entry", { id, input });
+export const envDuplicateEntry = (id: string) => invoke<void>("env_duplicate_entry", { id });
+export const envToggleEntry = (id: string) => invoke<void>("env_toggle_entry", { id });
+export const envDeleteEntry = (id: string) => invoke<void>("env_delete_entry", { id });
+export const envSelectVariant = (key: string, id: string) => invoke<void>("env_select_variant", { key, id });
+export const envAddMissing = () => invoke<number>("env_add_missing");
+export const envDiscard = () => invoke<void>("env_discard");
+export const envSetRawDraft = (text: string | null) => invoke<void>("env_set_raw_draft", { text });
+export const envApply = (force: boolean) => invoke<EnvOutcome>("env_apply", { force });
+export const envApplyRaw = (text: string, force: boolean) => invoke<EnvOutcome>("env_apply_raw", { text, force });
+export const envReloadFromDisk = () => invoke<void>("env_reload_from_disk");
+export const envRefreshFromDisk = () => invoke<void>("env_refresh_from_disk");
+export const envDismissConflict = () => invoke<void>("env_dismiss_conflict");
+export const envProfileSave = (repoId: string, name: string) => invoke<void>("env_profile_save", { repoId, name });
+export const envProfileApply = (repoId: string, profileId: string) =>
+  invoke<void>("env_profile_apply", { repoId, profileId });
+export const envProfileRename = (repoId: string, profileId: string, name: string) =>
+  invoke<void>("env_profile_rename", { repoId, profileId, name });
+export const envProfileDelete = (repoId: string, profileId: string) =>
+  invoke<void>("env_profile_delete", { repoId, profileId });
+
+export const onEnvChanged = (handler: (snapshot: EnvSnapshot) => void): Promise<UnlistenFn> =>
+  listen<EnvSnapshot>("env-changed", (event) => handler(event.payload));
