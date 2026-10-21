@@ -198,3 +198,16 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Code editor tokens: addresses, names, values and comments read apart at a glance. */
+@layer components {
+  .cm-tok-ip { color: var(--chart-1); }
+  .cm-tok-host,
+  .cm-tok-key { color: var(--foreground); font-weight: 500; }
+  .cm-tok-value { color: var(--chart-2); }
+  .cm-tok-keyword { color: var(--chart-3); }
+  .cm-tok-punct { color: var(--muted-foreground); }
+  .cm-tok-comment { color: var(--muted-foreground); }
+  .cm-tok-marker { color: var(--muted-foreground); font-weight: 600; }
+  .cm-tok-disabled { opacity: 0.45; }
+}
