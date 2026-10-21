@@ -16,9 +16,11 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
-use crate::platform::{HOSTS_PATH, HostsWriter, WriteOutcome};
+use crate::hosts_writer;
+use crate::platform::{HOSTS_PATH, HostsWriter, RunOutcome, SharedRunner, WriteOutcome};
 use crate::profiles::{FileProfileStore, Profile, ProfileColor};
 use crate::watcher::FileWatcher;
+use model::ToastKind;
 pub use state::{EntryInput, Hosts, Outcome, Snapshot, Step};
 pub use switch::{SwitchPolicy, SwitchPreview};
 
@@ -260,6 +262,42 @@ pub fn hosts_cancel_pending_switch(app: AppHandle, state: State<'_, HostsState>)
 #[tauri::command]
 pub fn hosts_switch_preview(state: State<'_, HostsState>, target: Option<Uuid>) -> SwitchPreview {
     state.lock().switch_preview(target)
+}
+
+/// Copies the hosts file beside itself as root. Refused while a write is out,
+/// so the copy is never of a half-replaced file.
+#[tauri::command]
+pub async fn hosts_backup(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<HostsState>();
+    state.lock().check_idle()?;
+    let runner = app
+        .try_state::<SharedRunner>()
+        .ok_or("Hosven chưa sẵn sàng ghi /etc/hosts")?
+        .inner()
+        .clone();
+    let path = hosts_writer::backup_path(jiff::Timestamp::now());
+    let script = hosts_writer::backup_script(&path);
+    let ran = tauri::async_runtime::spawn_blocking(move || runner.run(&script))
+        .await
+        .unwrap_or_else(|error| RunOutcome::Failed {
+            exit: -1,
+            stderr: error.to_string(),
+        });
+    mutate(&app, &state, |h| match ran {
+        RunOutcome::Ok => h.show_toast(
+            format!("Đã tạo bản sao lưu {}", path.display()),
+            ToastKind::Success,
+        ),
+        RunOutcome::Cancelled => {}
+        failed => h.show_toast(
+            format!(
+                "Không tạo được bản sao lưu: {}",
+                failed.failure().unwrap_or_default()
+            ),
+            ToastKind::Error,
+        ),
+    });
+    Ok(())
 }
 
 #[tauri::command]

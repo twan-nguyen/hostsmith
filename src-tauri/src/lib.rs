@@ -1,13 +1,19 @@
-use tauri::Manager;
+use std::sync::Arc;
+
+use tauri::{Manager, RunEvent};
 
 mod appearance;
 mod config;
+mod external_tools;
+mod git_exposure;
 mod hosts;
+mod hosts_writer;
 mod login_path;
-// Shared by the platform services, which register their commands next.
-#[allow(dead_code)]
 mod platform;
+mod ports;
 mod profiles;
+// `suspend`, `resume` and `path` wait for the env watcher, which re-arms
+// after its own atomic saves.
 #[allow(dead_code)]
 mod watcher;
 
@@ -22,6 +28,18 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 appearance::apply_vibrancy(&window, true)?;
             }
+            let runner: platform::SharedRunner = Arc::new(platform::SystemRunner::new());
+            app.manage(hosts::HostsServices {
+                writer: Arc::new(hosts_writer::SystemHostsWriter::new(runner.clone())),
+                resolve: platform::resolve_host,
+            });
+            app.manage(runner);
+            app.manage(ports::PortsState::new());
+            // Looks the tools up now, so the first menu that names them does
+            // not wait for the lookup.
+            tauri::async_runtime::spawn_blocking(|| {
+                external_tools::detected();
+            });
             app.manage(hosts::HostsState::load());
             match hosts::watch(app.handle()) {
                 Ok(watch) => {
@@ -53,12 +71,32 @@ pub fn run() {
             hosts::hosts_switch_preview,
             hosts::hosts_dismiss_verification,
             hosts::hosts_export,
+            hosts::hosts_backup,
             hosts::profiles_add,
             hosts::profiles_rename,
             hosts::profiles_remove,
             hosts::profiles_set_exclusive,
             hosts::profiles_set_color,
+            ports::ports_snapshot,
+            ports::ports_scan,
+            ports::ports_kill,
+            ports::ports_stop_container,
+            external_tools::tools_detect,
+            external_tools::tools_open_in_terminal,
+            external_tools::tools_open_in_editor,
+            external_tools::tools_reveal_in_finder,
+            external_tools::tools_open_chrome_dns,
+            git_exposure::git_exposure,
+            git_exposure::git_add_to_gitignore,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let RunEvent::Exit = event {
+                // Root rights must not outlive the app.
+                if let Some(runner) = app.try_state::<platform::SharedRunner>() {
+                    runner.release();
+                }
+            }
+        });
 }
