@@ -41,6 +41,10 @@ struct EnvFile: Identifiable, Equatable {
     /// haven't been re-parsed yet). Cleared on apply.
     var rawTextDirty: Bool
 
+    /// Exact file content at the last load or write; `nil` when the file was not read
+    /// from disk. The write guard and the watcher compare the disk against it.
+    var diskContent: String?
+
     /// Computed: differs from disk = current entries diverge from the pristine
     /// snapshot, OR raw-text editor is mid-edit.
     var hasUnsavedChanges: Bool {
@@ -52,13 +56,15 @@ struct EnvFile: Identifiable, Equatable {
         relativePath: String,
         entries: [EnvEntry] = [],
         pristineEntries: [EnvEntry]? = nil,
-        rawTextDirty: Bool = false
+        rawTextDirty: Bool = false,
+        diskContent: String? = nil
     ) {
         self.id = id
         self.relativePath = relativePath
         self.entries = entries
         self.pristineEntries = pristineEntries ?? entries
         self.rawTextDirty = rawTextDirty
+        self.diskContent = diskContent
     }
 }
 
@@ -126,6 +132,8 @@ enum EnvError: LocalizedError {
     case invalidPath
     case fileReadFailed(String)
     case fileWriteFailed(String)
+    /// The file on disk changed after Hosven read it; writing would drop those edits.
+    case externalConflict
 
     var errorDescription: String? {
         switch self {
@@ -137,6 +145,7 @@ enum EnvError: LocalizedError {
         case .invalidPath: return "Đường dẫn không hợp lệ"
         case .fileReadFailed(let msg): return "Lỗi đọc file: \(msg)"
         case .fileWriteFailed(let msg): return "Lỗi ghi file: \(msg)"
+        case .externalConflict: return "File đã đổi trên đĩa sau khi Hosven đọc"
         }
     }
 }

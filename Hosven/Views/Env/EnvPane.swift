@@ -95,6 +95,18 @@ struct EnvPane: View {
             envManager.selectedRepoId = repoId
             refreshFiles(preferred: filePath)
         }
+        .onChange(of: selectedFilePath, initial: true) { _, path in
+            envManager.watchSelectedFile(repoId: repoId, relativePath: path)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // Backstop for watcher events missed while Hosven was in the background.
+            if let path = selectedFilePath { envManager.refreshFromDisk(repoId: repoId, relativePath: path) }
+        }
+        .onChange(of: currentFile?.diskContent) { _, _ in
+            // A reload from disk replaced the entries; keep the raw editor on the new text.
+            guard mode == .raw, let file = currentFile, !file.hasUnsavedChanges else { return }
+            rawText = EnvParser.format(file.entries)
+        }
         .task(id: "\(repoId)|\(selectedFilePath ?? "")") {
             gitExposure = .safe
             guard let path = selectedFilePath, path != EnvFileManager.exampleFileName else { return }
@@ -108,8 +120,10 @@ struct EnvPane: View {
             }
         }
         .onChange(of: modeRaw) { old, new in syncModeChange(from: Mode(rawValue: old) ?? .table, to: Mode(rawValue: new) ?? .table) }
-        .onChange(of: rawText) { _, _ in
+        .onChange(of: rawText) { _, text in
             guard mode == .raw, let file = currentFile, !file.hasUnsavedChanges else { return }
+            // Text the pane set itself (file switch, reload, apply) matches the entries and is not an edit.
+            guard text != EnvParser.format(file.entries) else { return }
             let fileId = file.id
             DispatchQueue.main.async { envManager.markFileDirty(repoId: repoId, fileId: fileId) }
         }
@@ -237,9 +251,7 @@ struct EnvPane: View {
 
     @ViewBuilder
     private func banner(_ repo: EnvRepo) -> some View {
-        if let toast = envManager.toast {
-            DSBanner(level: toast.type.bannerLevel, title: toast.message)
-        } else if gitExposure == .tracked, let path = selectedFilePath {
+        if gitExposure == .tracked, let path = selectedFilePath {
             DSBanner(
                 level: .danger,
                 title: "\(path) đang được git theo dõi",
@@ -247,6 +259,10 @@ struct EnvPane: View {
                 glyph: "exclamationmark.triangle.fill",
                 actions: [.init(label: "Thêm vào .gitignore") { addToGitignore(repo, path: path) }]
             )
+        } else if let path = selectedFilePath, let change = envManager.externalChange(repoId: repoId, relativePath: path) {
+            externalChangeBanner(change, path: path)
+        } else if let toast = envManager.toast {
+            DSBanner(level: toast.type.bannerLevel, title: toast.message)
         } else if gitExposure == .notIgnored, let path = selectedFilePath {
             DSBanner(
                 level: .warning,
@@ -278,6 +294,42 @@ struct EnvPane: View {
                 title: "Áp dụng sẽ ghi thay đổi vào \(file.relativePath)",
                 detail: "Comment, thứ tự và dòng trống được giữ nguyên."
             )
+        }
+    }
+
+    /// The file changed on disk while it held edits here, or disappeared. Nothing is
+    /// written until the person picks one side.
+    private func externalChangeBanner(_ change: EnvFileManager.ExternalChange, path: String) -> DSBanner {
+        switch change {
+        case .changed:
+            return DSBanner(
+                level: .warning,
+                title: "\(path) vừa đổi bên ngoài Hosven",
+                detail: "Bạn có thay đổi chưa áp dụng ở đây. Tải lại để lấy bản trên đĩa, hoặc ghi đè bằng bản của bạn.",
+                actions: [
+                    .init(label: "Tải lại từ đĩa") { reloadFromDisk(path) },
+                    .init(label: "Ghi đè bằng bản của tôi") { apply(force: true) },
+                ]
+            )
+        case .missing:
+            return DSBanner(
+                level: .warning,
+                title: "\(path) đã bị xoá hoặc đổi tên bên ngoài Hosven",
+                detail: "Nội dung vẫn còn trong Hosven. Tạo lại file để ghi nội dung này ra đĩa.",
+                actions: [
+                    .init(label: "Tạo lại file") { apply(force: true) },
+                    .init(label: "Đóng") { envManager.dismissExternalChange(repoId: repoId, relativePath: path) },
+                ]
+            )
+        }
+    }
+
+    private func reloadFromDisk(_ path: String) {
+        do {
+            try envManager.reloadFromDisk(repoId: repoId, relativePath: path)
+            if mode == .raw, let file = currentFile { rawText = EnvParser.format(file.entries) }
+        } catch {
+            envManager.showToast("Không đọc được \(path): \(error.localizedDescription)", type: .error)
         }
     }
 
@@ -713,6 +765,7 @@ struct EnvPane: View {
     private func loadSelected(_ path: String) {
         if envManager.loadedFile(repoId: repoId, relativePath: path) != nil {
             loadError = nil
+            envManager.refreshFromDisk(repoId: repoId, relativePath: path)
             return
         }
         loadError = nil
@@ -736,21 +789,24 @@ struct EnvPane: View {
         }
     }
 
-    private func apply() {
+    /// `force` writes over a file that changed on disk since Hosven read it.
+    private func apply(force: Bool = false) {
         guard let file = currentFile else { return }
-        guard file.hasUnsavedChanges else {
+        guard file.hasUnsavedChanges || force else {
             envManager.showToast("Không có gì để áp dụng", type: .info)
             return
         }
         do {
             if mode == .raw {
-                try envManager.applyRawText(repoId: repoId, fileId: file.id, relativePath: file.relativePath, rawText: rawText)
+                try envManager.applyRawText(repoId: repoId, fileId: file.id, relativePath: file.relativePath, rawText: rawText, force: force)
                 if let refreshed = envManager.loadedFile(repoId: repoId, relativePath: file.relativePath) {
                     rawText = EnvParser.format(refreshed.entries)
                 }
             } else {
-                try envManager.applyChanges(repoId: repoId, file: file)
+                try envManager.applyChanges(repoId: repoId, file: file, force: force)
             }
+        } catch EnvError.externalConflict {
+            // The conflict banner explains it and offers both ways out.
         } catch {
             envManager.showToast("Không ghi được \(file.relativePath): \(error.localizedDescription)", type: .error)
         }

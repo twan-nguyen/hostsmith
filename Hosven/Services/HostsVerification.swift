@@ -35,7 +35,10 @@ struct HostsVerification: Equatable {
         return pairs
     }
 
-    static func run(_ pairs: [(hostname: String, ip: String)]) async -> HostsVerification {
+    static func run(
+        _ pairs: [(hostname: String, ip: String)],
+        resolve: @escaping @Sendable (String) -> [String] = { HostsVerification.resolve($0) }
+    ) async -> HostsVerification {
         let results = await Task.detached(priority: .utility) {
             pairs.map { Result(hostname: $0.hostname, expectedIP: $0.ip, resolvedIPs: resolve($0.hostname)) }
         }.value
@@ -43,7 +46,7 @@ struct HostsVerification: Equatable {
     }
 
     /// `dscacheutil -q host -a name X` prints `ip_address:` and `ipv6_address:` lines.
-    private static func resolve(_ hostname: String) -> [String] {
+    static func resolve(_ hostname: String) -> [String] {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/dscacheutil")
         process.arguments = ["-q", "host", "-a", "name", hostname]

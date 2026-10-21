@@ -3,12 +3,19 @@ import SwiftUI
 @main
 struct HosvenApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @State private var hostsManager = HostsFileManager()
+    @State private var hostsManager = HostsFileManager(privilegedRunner: HosvenApp.uiTestRunner)
     @State private var envManager = EnvFileManager()
     @State private var portsManager = PortsManager()
     @State private var autoUpdater = AutoUpdater()
     @AppStorage("showMenuBarExtra") private var showMenuBarExtra: Bool = true
     @AppStorage("sidebarCollapsed") private var sidebarCollapsed = false
+
+    /// UI tests launch with `-uiTestingNoPrivilegedWrites`: every root command reports a
+    /// cancelled prompt, so ⌘1 and friends exercise the flow without touching /etc/hosts.
+    private static var uiTestRunner: HostsFileManager.PrivilegedRunner? {
+        guard ProcessInfo.processInfo.arguments.contains("-uiTestingNoPrivilegedWrites") else { return nil }
+        return { _, completion in completion(false, nil) }
+    }
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
@@ -56,10 +63,11 @@ struct HosvenApp: App {
             CommandMenu("Profile") {
                 profileShortcutCommands
                 Divider()
-                Button("Bỏ kích hoạt profile") {
-                    hostsManager.switchProfile(to: nil)
+                Button("Tắt môi trường") {
+                    hostsManager.switchEnvironment(to: nil, policy: .askIfPending)
                 }
                 .keyboardShortcut("0", modifiers: .command)
+                .disabled(hostsManager.activeProfileState == .none)
             }
         }
 
@@ -88,16 +96,17 @@ struct HosvenApp: App {
         Image(systemName: hostsManager.activeProfileID == nil ? "network" : "network.badge.shield.half.filled")
     }
 
-    /// One menu item per profile (⌘1..⌘9). Hidden in production menu via empty title? — kept visible
-    /// so users can discover the shortcut. macOS folds it into the Profile menu.
+    /// One menu item per environment (⌘1..⌘9), kept visible so the shortcut can be
+    /// discovered. Each switches and writes in one action, the same as every other entry point.
     @ViewBuilder
     private var profileShortcutCommands: some View {
-        ForEach(hostsManager.profiles, id: \.id) { profile in
+        ForEach(hostsManager.environmentProfiles, id: \.id) { profile in
             if let n = profile.shortcutNumber, (1...9).contains(n) {
-                Button("Kích hoạt \(profile.name)") {
-                    hostsManager.activateProfile(id: profile.id)
+                Button("Chuyển sang \(profile.name)") {
+                    hostsManager.switchEnvironment(to: profile.id, policy: .askIfPending)
                 }
                 .keyboardShortcut(KeyEquivalent(Character("\(n)")), modifiers: .command)
+                .disabled(hostsManager.tagEntryCount(name: profile.name) == 0)
             }
         }
     }

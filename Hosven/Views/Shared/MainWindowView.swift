@@ -58,6 +58,16 @@ struct MainWindowView: View {
             }
         }
         .animation(reduceMotion ? nil : .dsPopover, value: showCommandPalette)
+        .alert(
+            "Có \(hostsManager.pendingSwitch?.pendingCount ?? 0) thay đổi chưa áp dụng",
+            isPresented: pendingSwitchAlertPresented,
+            presenting: hostsManager.pendingSwitch
+        ) { _ in
+            Button("Áp dụng cùng") { hostsManager.confirmPendingSwitch() }
+            Button("Huỷ", role: .cancel) { hostsManager.cancelPendingSwitch() }
+        } message: { pending in
+            Text(pendingSwitchMessage(pending))
+        }
     }
 
     // MARK: - URL scheme
@@ -75,11 +85,13 @@ struct MainWindowView: View {
                 return
             }
             selection.wrappedValue = .profile(profile.id)
-            hostsManager.activateProfile(id: profile.id)
-            hostsManager.applyChanges()
+            guard profile.isExclusive else {
+                hostsManager.showToast("\(profile.name) là block, không phải môi trường", type: .error)
+                return
+            }
+            hostsManager.switchEnvironment(to: profile.id, policy: .refuseIfPending) { reportRefusal($0) }
         case .deactivate:
-            selection.wrappedValue = .systemHosts
-            hostsManager.switchProfile(to: nil)
+            hostsManager.switchEnvironment(to: nil, policy: .refuseIfPending) { reportRefusal($0) }
         case .applyEnvProfile(let repoName, let profileName):
             guard let repo = envManager.repos.first(where: { $0.name.caseInsensitiveCompare(repoName) == .orderedSame }) else {
                 hostsManager.showToast("Không có repo tên \(repoName)", type: .error)
@@ -104,6 +116,28 @@ struct MainWindowView: View {
         case .ports:
             selection.wrappedValue = .ports
         }
+    }
+
+    /// Scripts cannot answer a dialog, so a URL switch refuses to write pending edits and says so.
+    private func reportRefusal(_ outcome: HostsFileManager.SwitchOutcome) {
+        if case .refused(let count) = outcome {
+            hostsManager.showToast("Có \(count) thay đổi chưa áp dụng. Áp dụng hoặc huỷ chúng trước khi đổi môi trường.", type: .error)
+        }
+    }
+
+    /// Shown when a switch from the window would also write other pending changes.
+    private var pendingSwitchAlertPresented: Binding<Bool> {
+        Binding(
+            get: { hostsManager.pendingSwitch != nil },
+            set: { if !$0 { hostsManager.cancelPendingSwitch() } }
+        )
+    }
+
+    private func pendingSwitchMessage(_ pending: HostsFileManager.PendingSwitch) -> String {
+        let action = pending.target
+            .flatMap { id in hostsManager.profiles.first { $0.id == id } }
+            .map { "Đổi sang \($0.name)" } ?? "Tắt môi trường"
+        return "\(action) sẽ ghi cả \(pending.pendingCount) thay đổi này vào /etc/hosts."
     }
 
     // MARK: - Pane routing

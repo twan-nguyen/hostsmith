@@ -4,8 +4,8 @@ import XCTest
 /// list, the hosts search field and the ⌘1 shortcut.
 ///
 /// Notes:
-/// - Apply (privileged write to /etc/hosts) is NOT exercised — it needs an
-///   interactive password dialog.
+/// - Apply (privileged write to /etc/hosts) is NOT exercised. The app launches with
+///   `-uiTestingNoPrivilegedWrites`, so every root command reports a cancelled prompt.
 /// - Profiles come from tag markers in the real /etc/hosts; tests that need one
 ///   skip when none exist.
 final class HosvenUITests: XCTestCase {
@@ -17,7 +17,7 @@ final class HosvenUITests: XCTestCase {
         if let appearance = ProcessInfo.processInfo.environment["HOSVEN_APPEARANCE"] {
             app.launchArguments += ["-appearanceMode", appearance]
         }
-        app.launchArguments += ["-sidebarSelection", "systemHosts"]
+        app.launchArguments += ["-sidebarSelection", "systemHosts", "-uiTestingNoPrivilegedWrites"]
         app.launch()
     }
 
@@ -34,9 +34,9 @@ final class HosvenUITests: XCTestCase {
     }
 
     func test_sidebar_showsFixedGroups() {
-        XCTAssertTrue(app.staticTexts["PROFILES"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["HOSTS"].exists)
-        XCTAssertTrue(app.staticTexts["REPOS"].exists)
+        XCTAssertTrue(app.staticTexts["Môi trường"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Hosts"].exists)
+        XCTAssertTrue(app.staticTexts["Repos"].exists)
     }
 
     func test_sidebar_systemHostsRow_isSelectedByDefault() {
@@ -72,9 +72,15 @@ final class HosvenUITests: XCTestCase {
         let first = profileRows.element(boundBy: 0)
         XCTAssertTrue(first.exists)
         first.click()
-        XCTAssertTrue(app.buttons["Kích hoạt"].waitForExistence(timeout: 2), "Profile pane shows the Activate button")
+        let activate = app.buttons["profile-activate"]
+        let deactivate = app.buttons["Tắt"]
+        XCTAssertTrue(
+            activate.waitForExistence(timeout: 2) || deactivate.exists,
+            "Environment pane shows Kích hoạt, or Tắt when it is the active one"
+        )
     }
 
+    /// Runs the switch through the no-write runner: the prompt reports cancelled and nothing changes.
     func test_keyboardShortcut_cmd1_activatesFirstProfile() throws {
         let profileRows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'profile-row-'"))
         guard profileRows.count > 0 else {

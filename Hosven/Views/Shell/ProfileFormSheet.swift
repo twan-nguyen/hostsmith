@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Create or rename a hosts profile and pick its environment colour.
+/// Create or edit a hosts profile: its name, colour, and whether it is an environment.
 struct ProfileFormSheet: View {
     enum Mode: Identifiable {
         case create
@@ -20,6 +20,7 @@ struct ProfileFormSheet: View {
 
     @State private var name = ""
     @State private var color: ProfileColor = .blue
+    @State private var isExclusive = true
     @State private var invalidReason: String?
 
     private var isRename: Bool {
@@ -29,24 +30,30 @@ struct ProfileFormSheet: View {
 
     var body: some View {
         DSSheetContainer(
-            title: isRename ? "Đổi tên profile" : "Profile mới",
+            title: isRename ? "Sửa profile" : "Profile mới",
             subtitle: "Một profile nhóm các entry trong /etc/hosts để bật tắt cùng nhau.",
             bodyContent: {
                 VStack(alignment: .leading, spacing: DS.Spacing.space6) {
                     DSField("Tên profile", text: $name, prompt: "Tên profile", autocorrect: false, invalidReason: invalidReason)
                     VStack(alignment: .leading, spacing: DS.Spacing.space3) {
-                        Text("Môi trường")
+                        Text("Màu")
                             .font(DS.Text.textMenuLabel)
                             .foregroundStyle(DS.Colors.inkSecondary)
                         ProfileColorPicker(selection: $color)
                     }
+                    DSSwitch(
+                        isOn: $isExclusive,
+                        label: "Môi trường",
+                        sublabel: "Bật một môi trường sẽ tắt các môi trường khác. Tắt mục này để bật tắt profile độc lập."
+                    )
+                    .accessibilityIdentifier("profile-exclusive-switch")
                 }
             },
             footer: {
                 Button("Huỷ") { dismiss() }
                     .buttonStyle(.ds(.bordered, size: .lg))
                     .keyboardShortcut(.escape)
-                Button(isRename ? "Đổi tên" : "Tạo profile") { save() }
+                Button(isRename ? "Lưu" : "Tạo profile") { save() }
                     .buttonStyle(.ds(.primary, size: .lg))
                     .keyboardShortcut(.return)
             }
@@ -56,6 +63,7 @@ struct ProfileFormSheet: View {
             if case .rename(let profile) = mode {
                 name = profile.name
                 color = profile.color
+                isExclusive = profile.isExclusive
             }
         }
     }
@@ -69,7 +77,7 @@ struct ProfileFormSheet: View {
         }
         switch mode {
         case .create:
-            guard hostsManager.addProfile(name: trimmed, color: color) != nil else {
+            guard hostsManager.addProfile(name: trimmed, color: color, isExclusive: isExclusive) != nil else {
                 invalidReason = "Đã có profile tên \(trimmed)"
                 return
             }
@@ -80,6 +88,9 @@ struct ProfileFormSheet: View {
             }
             if profile.color != color {
                 hostsManager.updateProfileColor(id: profile.id, color: color)
+            }
+            if profile.isExclusive != isExclusive {
+                hostsManager.updateProfileExclusive(id: profile.id, isExclusive)
             }
         }
         dismiss()

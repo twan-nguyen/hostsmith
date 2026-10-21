@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// A profile: what activating it turns on, listed one entry per row. `screens/Profiles.dc.html`.
-/// Entries can be added, edited, removed and switched here; nothing reaches
-/// `/etc/hosts` until Áp dụng.
+/// A profile, listed one entry per row. `screens/Profiles.dc.html`.
+/// An environment is switched to from the toolbar, which writes `/etc/hosts` at once.
+/// A block has one switch for all its entries. Entry edits wait for Áp dụng.
 struct ProfilePane: View {
     let profileId: UUID
     let select: (AppSidebarSelection) -> Void
@@ -28,25 +28,53 @@ struct ProfilePane: View {
 
     private func content(_ profile: Profile) -> some View {
         let entries = hostsManager.entries.filter { $0.tag == profile.name }
-        let isActive = hostsManager.activeProfileID == profile.id
+        let isActive = profile.isExclusive
+            ? hostsManager.activeProfileID == profile.id
+            : hostsManager.tagState(name: profile.name) != .allDisabled
         let enabledCount = entries.filter(\.isEnabled).count
-        let shortcut = profile.shortcutNumber.flatMap { (1...9).contains($0) ? " · ⌘\($0)" : nil } ?? ""
+        let shortcut = profile.isExclusive
+            ? profile.shortcutNumber.flatMap { (1...9).contains($0) ? " · ⌘\($0)" : nil } ?? ""
+            : ""
+        let kind = profile.isExclusive ? "Môi trường" : "Block"
+        let pending = hostsManager.hasUnsavedChanges
 
         return VStack(spacing: 0) {
-            ToolbarView(title: profile.name, path: "Profile · \(entries.count) entry\(shortcut)") {
-                DSToolbarStatus(state: isActive ? .ok : .idle, label: isActive ? "Đang hoạt động" : "Không hoạt động")
+            ToolbarView(title: profile.name, path: "\(kind) · \(entries.count) entry\(shortcut)") {
+                DSToolbarStatus(state: isActive ? .ok : .idle, label: isActive ? "Đang bật" : "Đang tắt")
                 if profile.color.isEnvironment {
                     DSChip(text: profile.color.displayName, color: profile.color)
                         .padding(.trailing, DS.Spacing.space1)
                 }
                 overflowMenu(profile)
-                if isActive {
-                    Button("Bỏ kích hoạt") { hostsManager.switchProfile(to: nil) }
-                        .buttonStyle(.dsBordered)
+                if profile.isExclusive {
+                    if isActive {
+                        Button("Tắt") { hostsManager.switchEnvironment(to: nil, policy: .askIfPending) }
+                            .buttonStyle(.dsBordered)
+                            .disabled(hostsManager.isApplying)
+                    } else {
+                        Button("Kích hoạt") { hostsManager.switchEnvironment(to: profile.id, policy: .askIfPending) }
+                            .buttonStyle(pending ? .dsBordered : .dsPrimary)
+                            .disabled(entries.isEmpty || hostsManager.isApplying)
+                            .help(entries.isEmpty ? "Thêm entry để kích hoạt môi trường này" : "")
+                            .accessibilityIdentifier("profile-activate")
+                    }
                 } else {
-                    Button("Kích hoạt") { hostsManager.activateProfile(id: profile.id) }
+                    DSSwitch(
+                        isOn: Binding(
+                            get: { isActive },
+                            set: { hostsManager.setTagEnabled(name: profile.name, enabled: $0) }
+                        ),
+                        disabled: entries.isEmpty
+                    )
+                    .accessibilityLabel("\(profile.name), \(isActive ? "bật" : "tắt")")
+                    .accessibilityIdentifier("profile-block-toggle")
+                }
+                if pending {
+                    Button(hostsManager.isApplying ? "Đang ghi" : "Áp dụng") { hostsManager.applyChanges() }
                         .buttonStyle(.dsPrimary)
-                        .accessibilityIdentifier("profile-activate")
+                        .keyboardShortcut("s", modifiers: .command)
+                        .disabled(hostsManager.isApplying)
+                        .accessibilityIdentifier("profile-apply")
                 }
             }
 
@@ -101,7 +129,10 @@ struct ProfilePane: View {
     private func overflowMenu(_ profile: Profile) -> some View {
         Menu {
             Button("Thêm entry") { entrySheet = .add }
-            Button("Đổi tên") { profileSheet = .rename(profile) }
+            Button("Sửa") { profileSheet = .rename(profile) }
+            Button(profile.isExclusive ? "Chuyển thành block" : "Chuyển thành môi trường") {
+                hostsManager.updateProfileExclusive(id: profile.id, !profile.isExclusive)
+            }
             Button("Hiện trong Hosts hệ thống") { select(.hostsTag(profile.name)) }
                 .disabled(hostsManager.tagEntryCount(name: profile.name) == 0)
             Divider()
@@ -122,34 +153,39 @@ struct ProfilePane: View {
 
     @ViewBuilder
     private func banner(_ profile: Profile, entries: [HostEntry], isActive: Bool, enabledCount: Int) -> some View {
-        let offCount = entries.count - enabledCount
         if let toast = hostsManager.toast {
             DSBanner(level: toast.type.bannerLevel, title: toast.message)
+        } else if case .conflict(let ids) = hostsManager.activeProfileState, profile.isExclusive {
+            EnvironmentConflictBanner(profileIds: ids)
         } else if hostsManager.hasUnsavedChanges {
             DSBanner(
                 level: .info,
                 title: "\(hostsManager.pendingChangeCount) thay đổi chưa ghi vào /etc/hosts",
                 detail: "Cần quyền quản trị một lần mỗi phiên.",
-                glyph: "lock.fill",
-                actions: [.init(label: "Áp dụng") { hostsManager.applyChanges() }]
+                glyph: "lock.fill"
             )
         } else if isActive {
-            DSBanner(level: .success, title: "\(profile.name) đang hoạt động với \(enabledCount) trong \(entries.count) entry bật")
-        } else if entries.isEmpty {
+            DSBanner(level: .success, title: "\(profile.name) đang bật với \(enabledCount) trong \(entries.count) entry")
+        } else if entries.isEmpty || !profile.isExclusive {
             EmptyView()
-        } else if offCount == 0 {
-            DSBanner(
-                level: .info,
-                title: "Cả \(entries.count) entry của \(profile.name) đang bật",
-                detail: "Kích hoạt chỉ đánh dấu \(profile.name) là profile hiện hành; không ghi gì vào /etc/hosts."
-            )
         } else {
             DSBanner(
                 level: .info,
-                title: "Kích hoạt sẽ bật \(offCount) entry đang tắt của \(profile.name)",
-                detail: "Không ghi gì vào /etc/hosts cho đến khi bạn nhấn Áp dụng."
+                title: activationSummary(profile),
+                detail: "Cần quyền quản trị một lần mỗi phiên.",
+                glyph: "lock.fill"
             )
         }
+    }
+
+    /// "Kích hoạt sẽ bật 2 entry của Staging, tắt 3 entry của Local và ghi vào /etc/hosts"
+    private func activationSummary(_ profile: Profile) -> String {
+        let preview = hostsManager.switchPreview(to: profile.id)
+        var parts: [String] = []
+        if preview.enable > 0 { parts.append("bật \(preview.enable) entry của \(profile.name)") }
+        parts += preview.disable.map { "tắt \($0.count) entry của \($0.name)" }
+        if parts.isEmpty { return "Kích hoạt sẽ đánh dấu \(profile.name) là môi trường đang bật" }
+        return "Kích hoạt sẽ " + parts.joined(separator: ", ") + " và ghi vào /etc/hosts"
     }
 
     // MARK: - Entries

@@ -2,8 +2,8 @@ import Testing
 import Foundation
 @testable import Hosven
 
-@Suite("HostsFileWatcher")
-struct HostsFileWatcherTests {
+@Suite("FileWatcher")
+struct FileWatcherTests {
     /// Allocate a unique temp path per test — DispatchSource holds an FD on it.
     private func tempPath() -> String {
         NSTemporaryDirectory() + "hostswatcher-\(UUID().uuidString).txt"
@@ -15,8 +15,8 @@ struct HostsFileWatcherTests {
         try "initial".write(toFile: path, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let watcher = HostsFileWatcher(path: path, debounceInterval: 0.1)
-        let received = AsyncReceiver<HostsFileWatcher.Event>()
+        let watcher = FileWatcher(path: path, debounceInterval: 0.1)
+        let received = AsyncReceiver<FileWatcher.Event>()
         watcher.onChange = { received.send($0) }
         watcher.start()
         defer { watcher.stop() }
@@ -35,8 +35,8 @@ struct HostsFileWatcherTests {
         try "v0".write(toFile: path, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let watcher = HostsFileWatcher(path: path, debounceInterval: 0.3)
-        let received = AsyncReceiver<HostsFileWatcher.Event>()
+        let watcher = FileWatcher(path: path, debounceInterval: 0.3)
+        let received = AsyncReceiver<FileWatcher.Event>()
         watcher.onChange = { received.send($0) }
         watcher.start()
         defer { watcher.stop() }
@@ -58,8 +58,8 @@ struct HostsFileWatcherTests {
         try "v0".write(toFile: path, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        let watcher = HostsFileWatcher(path: path, debounceInterval: 0.1)
-        let received = AsyncReceiver<HostsFileWatcher.Event>()
+        let watcher = FileWatcher(path: path, debounceInterval: 0.1)
+        let received = AsyncReceiver<FileWatcher.Event>()
         watcher.onChange = { received.send($0) }
         watcher.start()
         defer { watcher.stop() }

@@ -16,10 +16,7 @@ struct MenuBarContentView: View {
 
     private static let maxToggles = 8
 
-    private var activeProfile: Profile? {
-        guard let id = hostsManager.activeProfileID else { return nil }
-        return hostsManager.profiles.first { $0.id == id }
-    }
+    private var activeProfile: Profile? { hostsManager.activeProfile }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -69,7 +66,7 @@ struct MenuBarContentView: View {
                 Image(systemName: "square.stack.3d.up")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(DS.Colors.inkSecondary)
-                Text(activeProfile?.name ?? "Không có profile")
+                Text(activeProfile?.name ?? (hostsManager.activeProfileState == .none ? "Không có môi trường" : "Nhiều môi trường đang bật"))
                     .font(.system(size: 17, weight: .medium, design: .serif))
                     .foregroundStyle(DS.Colors.inkPrimary)
                     .lineLimit(1)
@@ -92,25 +89,23 @@ struct MenuBarContentView: View {
         }
         .buttonStyle(.plain)
         .focusEffectDisabled()
-        .accessibilityLabel(activeProfile.map { "Profile đang hoạt động: \($0.name)" } ?? "Không có profile hoạt động")
+        .accessibilityLabel(activeProfile.map { "Môi trường đang bật: \($0.name)" } ?? "Không có môi trường đang bật")
     }
 
     private var profileSwitcher: some View {
         VStack(spacing: 0) {
-            ForEach(hostsManager.profiles, id: \.id) { profile in
+            ForEach(hostsManager.environmentProfiles.filter { hostsManager.tagEntryCount(name: $0.name) > 0 }, id: \.id) { profile in
                 MenuBarItem(
                     title: profile.name,
                     subtitle: "\(hostsManager.tagEntryCount(name: profile.name)) entry",
                     trailingText: profile.id == hostsManager.activeProfileID ? "Đang bật" : nil
                 ) {
-                    hostsManager.activateProfile(id: profile.id)
-                    showProfileSwitcher = false
+                    switchEnvironment(to: profile.id)
                 }
             }
-            if hostsManager.activeProfileID != nil {
-                MenuBarItem(title: "Bỏ kích hoạt", subtitle: nil, trailingText: "⌘0") {
-                    hostsManager.switchProfile(to: nil)
-                    showProfileSwitcher = false
+            if hostsManager.activeProfileState != .none {
+                MenuBarItem(title: "Tắt môi trường", subtitle: nil, trailingText: "⌘0") {
+                    switchEnvironment(to: nil)
                 }
             }
         }
@@ -119,8 +114,9 @@ struct MenuBarContentView: View {
 
     // MARK: - Quick toggles
 
+    /// Blocks only: environments are switched in the card above, one at a time.
     private var quickToggles: some View {
-        let profiles = hostsManager.profiles.filter { hostsManager.tagEntryCount(name: $0.name) > 0 }
+        let profiles = hostsManager.blockProfiles.filter { hostsManager.tagEntryCount(name: $0.name) > 0 }
         let shown = Array(profiles.prefix(Self.maxToggles))
         return VStack(spacing: 0) {
             if shown.isEmpty {
@@ -177,12 +173,35 @@ struct MenuBarContentView: View {
     /// write reverts it and reports inside the panel.
     private func flip(_ profile: Profile, enabled: Bool) {
         failure = nil
+        // Same rule as switching environments: never write edits pending in the window.
+        guard !hostsManager.hasUnsavedChanges else {
+            failure = "Có \(hostsManager.pendingChangeCount) thay đổi chưa áp dụng trong Hosven. Mở Hosven để áp dụng hoặc huỷ trước."
+            return
+        }
         hostsManager.setTagEnabled(name: profile.name, enabled: enabled)
         hostsManager.applyChanges { success, message in
             guard !success else { return }
             hostsManager.setTagEnabled(name: profile.name, enabled: !enabled)
             if let message {
                 failure = "Không ghi được /etc/hosts vì \(message). Thử lại và chấp nhận hộp thoại xác thực."
+            }
+        }
+    }
+
+    /// Switches and writes at once. The panel cannot hold a dialog, so pending edits
+    /// made in the window block the switch and the panel says so.
+    private func switchEnvironment(to id: UUID?) {
+        failure = nil
+        hostsManager.switchEnvironment(to: id, policy: .refuseIfPending) { outcome in
+            switch outcome {
+            case .written:
+                showProfileSwitcher = false
+            case .refused(let count):
+                failure = "Có \(count) thay đổi chưa áp dụng trong Hosven. Mở Hosven để áp dụng hoặc huỷ trước."
+            case .failed(let message):
+                failure = "Không ghi được /etc/hosts vì \(message). Thử lại và chấp nhận hộp thoại xác thực."
+            case .cancelled, .needsConfirmation, .nothingToDo:
+                break
             }
         }
     }

@@ -91,6 +91,7 @@ final class HostsFileManager {
     func discardChanges() {
         guard !originalContent.isEmpty else { return }
         pushUndo()
+        rawDraft = nil
         parseHostsContent(originalContent)
         captureClean()
     }
@@ -120,8 +121,14 @@ final class HostsFileManager {
     /// orphan profiles preserved so user metadata survives temporary tag removal.
     var profiles: [Profile] = []
 
-    /// `nil` means "show all" (legacy v1 behaviour). Non-nil = filter UI to this profile's tag.
-    var activeProfileID: UUID?
+    /// Text the Hosts pane editor holds but has not merged into `entries`. The pane sets
+    /// it on every edit so a profile switch started elsewhere folds the typing in instead
+    /// of regenerating the editor over it. Cleared by load, discard and every write.
+    var rawDraft: String?
+
+    /// A window-context switch that is waiting for the person to accept writing the
+    /// other pending changes with it. `MainWindowView` presents the confirmation.
+    var pendingSwitch: PendingSwitch?
 
     private var originalContent = ""
     private let hostsPath = "/etc/hosts"
@@ -134,7 +141,7 @@ final class HostsFileManager {
     /// Cleared after `loadHostsFile()` or user dismissal.
     var externalChangeDetected = false
 
-    private let fileWatcher = HostsFileWatcher()
+    private let fileWatcher = FileWatcher()
 
     // MARK: - Undo / Redo
 
@@ -178,8 +185,23 @@ final class HostsFileManager {
         redoStack.removeAll()
     }
 
-    init(profileStore: ProfileStoring = ProfileStore(), autoLoad: Bool = true) {
+    /// Runs one shell command as root. The app uses the AuthorizationExecuteWithPrivileges
+    /// helper; tests pass a fake that records the command and reports the outcome.
+    /// Completion receives `(success, errorMessage)`; a cancelled prompt is `(false, nil)`.
+    typealias PrivilegedRunner = (_ command: String, _ completion: @escaping (Bool, String?) -> Void) -> Void
+
+    private let privilegedRunner: PrivilegedRunner
+    private let resolver: @Sendable (String) -> [String]
+
+    init(
+        profileStore: ProfileStoring = ProfileStore(),
+        autoLoad: Bool = true,
+        privilegedRunner: PrivilegedRunner? = nil,
+        resolver: @escaping @Sendable (String) -> [String] = { HostsVerification.resolve($0) }
+    ) {
         self.profileStore = profileStore
+        self.privilegedRunner = privilegedRunner ?? Self.runWithHelper
+        self.resolver = resolver
         self.profiles = profileStore.load()
         if autoLoad {
             loadHostsFile()
@@ -227,6 +249,7 @@ final class HostsFileManager {
     func loadHostsFile() {
         do {
             let content = try String(contentsOfFile: hostsPath, encoding: .utf8)
+            rawDraft = nil
             originalContent = content
             parseHostsContent(content)
             captureClean()
@@ -339,10 +362,12 @@ final class HostsFileManager {
         var changed = false
         for tag in tags where !profiles.contains(where: { $0.name == tag.name }) {
             let nextShortcut = (profiles.compactMap(\.shortcutNumber).max() ?? 0) + 1
+            // A block found in the file starts independent; the person marks it an environment.
             profiles.append(Profile(
                 name: tag.name,
                 color: Self.guessColor(for: tag.name, existing: profiles),
-                shortcutNumber: nextShortcut <= 9 ? nextShortcut : nil
+                shortcutNumber: nextShortcut <= 9 ? nextShortcut : nil,
+                isExclusive: false
             ))
             changed = true
         }
@@ -363,16 +388,11 @@ final class HostsFileManager {
 
     // MARK: - Profile CRUD
 
-    /// Switch active profile (or pass `nil` to show all). Does not modify hosts file.
-    func switchProfile(to id: UUID?) {
-        activeProfileID = id
-    }
-
     /// Add a new profile with auto-assigned shortcut. Does not create a tag in hosts file
     /// (that happens when entries are tagged).
-    func addProfile(name: String, color: ProfileColor) -> Profile? {
+    func addProfile(name: String, color: ProfileColor, isExclusive: Bool = false) -> Profile? {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
-        let candidate = Profile(name: trimmed, color: color)
+        let candidate = Profile(name: trimmed, color: color, isExclusive: isExclusive)
         guard candidate.isNameValid,
               !profiles.contains(where: { $0.name.lowercased() == trimmed.lowercased() })
         else { return nil }
@@ -386,7 +406,13 @@ final class HostsFileManager {
     /// Remove profile metadata. Caller is responsible for untagging entries first if desired.
     func removeProfile(id: UUID) {
         profiles.removeAll { $0.id == id }
-        if activeProfileID == id { activeProfileID = nil }
+        profileStore.save(profiles)
+    }
+
+    /// Mark a profile as an environment (exclusive) or a block, and persist it.
+    func updateProfileExclusive(id: UUID, _ isExclusive: Bool) {
+        guard let idx = profiles.firstIndex(where: { $0.id == id }) else { return }
+        profiles[idx].isExclusive = isExclusive
         profileStore.save(profiles)
     }
 
@@ -559,16 +585,6 @@ final class HostsFileManager {
         entries = updated
     }
 
-    /// Activate a profile: make it the active one and enable every entry in its block.
-    /// Nothing reaches disk until `applyChanges()`.
-    func activateProfile(id: UUID) {
-        guard let profile = profiles.first(where: { $0.id == id }) else { return }
-        activeProfileID = id
-        if tagState(name: profile.name) != .allEnabled {
-            setTagEnabled(name: profile.name, enabled: true)
-        }
-    }
-
     enum TagState {
         case allEnabled, allDisabled, mixed
     }
@@ -585,6 +601,170 @@ final class HostsFileManager {
 
     func isTagEnabled(name: String) -> Bool {
         return tagState(name: name) == .allEnabled
+    }
+
+    // MARK: - Environments
+
+    /// Profiles that exclude each other.
+    var environmentProfiles: [Profile] { profiles.filter(\.isExclusive) }
+    /// Profiles switched independently.
+    var blockProfiles: [Profile] { profiles.filter { !$0.isExclusive } }
+
+    enum ActiveProfileState: Equatable {
+        case none
+        case active(UUID)
+        /// More than one environment has entries on: a hand-edited file or an older version.
+        case conflict([UUID])
+    }
+
+    /// Read from the entries themselves, so it matches what the resolver sees and survives relaunch.
+    var activeProfileState: ActiveProfileState {
+        let on = environmentProfiles.filter { profile in
+            entries.contains { $0.tag == profile.name && $0.isEnabled }
+        }.map(\.id)
+        switch on.count {
+        case 0: return .none
+        case 1: return .active(on[0])
+        default: return .conflict(on)
+        }
+    }
+
+    var activeProfileID: UUID? {
+        if case .active(let id) = activeProfileState { return id }
+        return nil
+    }
+
+    var activeProfile: Profile? {
+        activeProfileID.flatMap { id in profiles.first { $0.id == id } }
+    }
+
+    struct PendingSwitch: Identifiable, Equatable {
+        let id = UUID()
+        /// `nil` deactivates.
+        let target: UUID?
+        let pendingCount: Int
+    }
+
+    enum SwitchPolicy {
+        /// Window contexts: hold the switch in `pendingSwitch` for the person to confirm.
+        case askIfPending
+        /// Menu bar and URL scheme: write nothing and report why.
+        case refuseIfPending
+        /// The person accepted writing the pending changes with the switch.
+        case includePending
+    }
+
+    enum SwitchOutcome: Equatable {
+        case written
+        case cancelled
+        case failed(String)
+        case needsConfirmation(pendingCount: Int)
+        case refused(pendingCount: Int)
+        case nothingToDo
+    }
+
+    /// What switching to `id` changes: entries it turns on, and entries it turns off per
+    /// environment. `nil` previews deactivating.
+    func switchPreview(to id: UUID?) -> (enable: Int, disable: [(name: String, count: Int)]) {
+        let targetName = id.flatMap { id in environmentProfiles.first { $0.id == id }?.name }
+        let enable = entries.filter { $0.tag == targetName && !$0.isEnabled }.count
+        let disable = environmentProfiles
+            .filter { $0.name != targetName }
+            .map { profile in (profile.name, entries.filter { $0.tag == profile.name && $0.isEnabled }.count) }
+            .filter { $0.1 > 0 }
+        return (enable, disable)
+    }
+
+    /// Switch to one environment, or pass `nil` to turn every environment off, and write
+    /// `/etc/hosts` in the same action. Blocks are left as they are. When other changes are
+    /// pending, `policy` decides whether they are written too. A cancelled or failed write
+    /// restores the entries, so the model keeps matching the disk.
+    func switchEnvironment(to id: UUID?, policy: SwitchPolicy, completion: ((SwitchOutcome) -> Void)? = nil) {
+        guard !isApplying else {
+            completion?(.nothingToDo)
+            return
+        }
+        let target = id.flatMap { id in environmentProfiles.first { $0.id == id } }
+        if id != nil {
+            guard let target, tagEntryCount(name: target.name) > 0 else {
+                completion?(.nothingToDo)
+                return
+            }
+        }
+
+        mergeRawDraft()
+        if hasUnsavedChanges {
+            let count = pendingChangeCount
+            switch policy {
+            case .askIfPending:
+                pendingSwitch = PendingSwitch(target: id, pendingCount: count)
+                completion?(.needsConfirmation(pendingCount: count))
+                return
+            case .refuseIfPending:
+                completion?(.refused(pendingCount: count))
+                return
+            case .includePending:
+                break
+            }
+        }
+
+        let others = Set(environmentProfiles.map(\.name)).subtracting([target?.name].compactMap { $0 })
+        var updated = entries
+        for i in updated.indices {
+            guard let tag = updated[i].tag else { continue }
+            if tag == target?.name {
+                updated[i].isEnabled = true
+            } else if others.contains(tag) {
+                updated[i].isEnabled = false
+            }
+        }
+        guard updated != entries || hasUnsavedChanges else {
+            completion?(.nothingToDo)
+            return
+        }
+
+        let before = entries
+        let previous = activeProfile
+        let undoDepth = undoStack.count
+        pushUndo()
+        entries = updated
+        applyChanges { [weak self] success, error in
+            guard let self else { return }
+            if success {
+                if let target {
+                    self.showToast("Đã chuyển sang \(target.name)", type: .success)
+                } else {
+                    self.showToast(previous.map { "Đã tắt \($0.name)" } ?? "Đã tắt các môi trường", type: .success)
+                }
+                completion?(.written)
+            } else {
+                self.entries = before
+                if self.undoStack.count > undoDepth { self.undoStack.removeLast() }
+                completion?(error.map { .failed($0) } ?? .cancelled)
+            }
+        }
+    }
+
+    /// Runs the switch held in `pendingSwitch`, writing the other pending changes with it.
+    func confirmPendingSwitch() {
+        guard let pending = pendingSwitch else { return }
+        pendingSwitch = nil
+        switchEnvironment(to: pending.target, policy: .includePending)
+    }
+
+    func cancelPendingSwitch() {
+        pendingSwitch = nil
+    }
+
+    /// Fold the Hosts pane's unmerged typing into `entries`. Afterwards dirty state is
+    /// measured by content again, so typing that changed nothing stops counting as pending.
+    private func mergeRawDraft() {
+        guard let draft = rawDraft else { return }
+        rawDraft = nil
+        if draft != generateHostsContent() {
+            replaceContentFromRawText(draft)
+        }
+        rawTextDirtyOverride = false
     }
 
     func moveEntryToTag(entryId: UUID, tag: String?) {
@@ -671,6 +851,10 @@ final class HostsFileManager {
     }
 
     private func runPrivilegedCommand(_ command: String, completion: @escaping (Bool, String?) -> Void) {
+        privilegedRunner(command, completion)
+    }
+
+    private static func runWithHelper(_ command: String, completion: @escaping (Bool, String?) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
             let status = runPrivilegedShellCommand(command)
 
@@ -698,10 +882,32 @@ final class HostsFileManager {
             completion?(false, nil)
             return
         }
+        write(generateHostsContent(), reparse: false, completion: completion)
+    }
+
+    func replaceContentFromRawText(_ text: String) {
+        pushUndo()
+        parseHostsContent(text)
+    }
+
+    /// Writes the raw editor text verbatim, then re-parses it so entries match the disk.
+    func applyRawText(_ text: String, completion: ((Bool, String?) -> Void)? = nil) {
+        guard !text.isEmpty, !isApplying else {
+            completion?(false, nil)
+            return
+        }
+        let content = text.hasSuffix("\n") ? text : text + "\n"
+        write(content, reparse: true, completion: completion)
+    }
+
+    /// The only function that writes `/etc/hosts`. Every successful write clears dirty
+    /// state and resolves the hostnames it changed, so each write path reports the same way.
+    /// `reparse` rebuilds entries from `content` (raw writes); model writes keep entry ids.
+    /// Changes are measured against the normalised last-clean text, which is also what the
+    /// raw editor starts from, so formatting differences on disk do not count as changes.
+    private func write(_ content: String, reparse: Bool, completion: ((Bool, String?) -> Void)?) {
         isApplying = true
         verification = nil
-
-        let content = generateHostsContent()
         let changedPairs = HostsVerification.changedPairs(old: pristineSerialized, new: content)
         let tempPath = NSTemporaryDirectory() + "hosts_\(UUID().uuidString)"
 
@@ -725,63 +931,28 @@ final class HostsFileManager {
 
             if success {
                 self.originalContent = content
-                self.pristineSerialized = content
-                self.rawTextDirtyOverride = false
+                self.rawDraft = nil
+                if reparse {
+                    self.parseHostsContent(content)
+                    self.captureClean()
+                } else {
+                    // `content` is what reached disk; edits made while the prompt was open stay dirty.
+                    self.pristineSerialized = content
+                    self.rawTextDirtyOverride = false
+                }
                 self.externalChangeDetected = false
                 self.redoStack.removeAll()  // post-apply redo would re-create stale state
                 self.showToast("Đã ghi \(self.entries.count) entry vào /etc/hosts", type: .success)
                 if !changedPairs.isEmpty {
-                    Task { self.verification = await HostsVerification.run(changedPairs) }
+                    let resolver = self.resolver
+                    Task { self.verification = await HostsVerification.run(changedPairs, resolve: resolver) }
                 }
             } else if let error = error {
                 self.showToast("Không ghi được /etc/hosts: \(error)", type: .error)
             }
+            // error == nil means the person cancelled the prompt — nothing to report.
             completion?(success, error)
             // Resume after a short delay — disk events trail the cp by a few ms.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                self.fileWatcher.resume()
-            }
-            // error == nil means user cancelled — do nothing
-        }
-    }
-
-    func replaceContentFromRawText(_ text: String) {
-        pushUndo()
-        parseHostsContent(text)
-    }
-
-    func applyRawText(_ text: String) {
-        guard !text.isEmpty, !isApplying else { return }
-        isApplying = true
-
-        let content = text.hasSuffix("\n") ? text : text + "\n"
-        let tempPath = NSTemporaryDirectory() + "hosts_\(UUID().uuidString)"
-
-        do {
-            try content.write(toFile: tempPath, atomically: true, encoding: .utf8)
-        } catch {
-            isApplying = false
-            showToast("Không tạo được file tạm: \(error.localizedDescription)", type: .error)
-            return
-        }
-
-        let escapedTempPath = shellEscaped(tempPath)
-        let command = "cp \(escapedTempPath) /etc/hosts && rm -f \(escapedTempPath) && dscacheutil -flushcache && (killall -HUP mDNSResponder 2>/dev/null || true)"
-
-        fileWatcher.suspend()
-        runPrivilegedCommand(command) { [weak self] success, error in
-            guard let self = self else { return }
-            self.isApplying = false
-
-            if success {
-                self.originalContent = content
-                self.parseHostsContent(content)
-                self.captureClean()
-                self.externalChangeDetected = false
-                self.showToast("Đã ghi \(self.entries.count) entry vào /etc/hosts", type: .success)
-            } else if let error = error {
-                self.showToast("Không ghi được /etc/hosts: \(error)", type: .error)
-            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 self.fileWatcher.resume()
             }

@@ -43,16 +43,6 @@ struct ProfileIntegrationTests {
         #expect(m.profiles.count == 3) // Staging + Release + Production
     }
 
-    @Test("switchProfile updates activeProfileID")
-    func switchProfileUpdatesActive() {
-        let (m, _) = makeManager()
-        let release = m.profiles.first(where: { $0.name == "Release" })!
-        m.switchProfile(to: release.id)
-        #expect(m.activeProfileID == release.id)
-        m.switchProfile(to: nil)
-        #expect(m.activeProfileID == nil)
-    }
-
     @Test("addProfile rejects duplicate name (case-insensitive) and invalid name")
     func addProfileValidation() {
         let (m, _) = makeManager()
@@ -64,15 +54,12 @@ struct ProfileIntegrationTests {
         #expect(m.profiles.contains(where: { $0.name == "QA" }))
     }
 
-    @Test("removeProfile clears activeProfileID if it was the active one")
-    func removeProfileClearsActive() {
+    @Test("removeProfile drops the profile and persists")
+    func removeProfilePersists() {
         let (m, store) = makeManager()
         let release = m.profiles.first(where: { $0.name == "Release" })!
-        m.switchProfile(to: release.id)
         m.removeProfile(id: release.id)
-        #expect(m.activeProfileID == nil)
         #expect(!m.profiles.contains(where: { $0.id == release.id }))
-        // Persisted
         #expect(!store.stored.contains(where: { $0.id == release.id }))
     }
 

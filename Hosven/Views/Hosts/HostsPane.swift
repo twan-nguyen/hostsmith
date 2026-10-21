@@ -39,10 +39,18 @@ struct HostsPane: View {
             .dsPaneContent()
         }
         .task { syncTextFromEntries() }
+        .onDisappear {
+            // Keep typing when the person navigates away, and leave no stale draft behind.
+            mergePendingTyping()
+            hostsManager.rawDraft = nil
+        }
         .onChange(of: hostsManager.entries) { _, _ in syncTextFromEntries() }
         .onChange(of: focusTag) { _, _ in jumpToFocusedBlock() }
-        .onChange(of: rawText) { _, _ in
-            guard !isSyncingFromEntries, !hostsManager.hasUnsavedChanges else { return }
+        .onChange(of: rawText) { _, text in
+            guard !isSyncingFromEntries else { return }
+            // Lets a switch started elsewhere (⌘1–9, ⌘K, menu bar) fold this typing in.
+            hostsManager.rawDraft = text
+            guard !hostsManager.hasUnsavedChanges else { return }
             hostsManager.markRawTextDirty()
         }
         .onChange(of: hostsManager.isSearchFocused) { _, focused in
@@ -122,6 +130,8 @@ struct HostsPane: View {
     private var banner: some View {
         if let toast = hostsManager.toast {
             DSBanner(level: toast.type.bannerLevel, title: toast.message)
+        } else if case .conflict(let ids) = hostsManager.activeProfileState {
+            EnvironmentConflictBanner(profileIds: ids)
         } else if hostsManager.externalChangeDetected {
             DSBanner(
                 level: .warning,

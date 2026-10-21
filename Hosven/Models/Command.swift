@@ -59,23 +59,22 @@ struct SwitchProfileCommand: PaletteCommand {
 
     func execute(in context: PaletteContext) {
         context.select(.profile(profile.id))
-        context.hostsManager.activateProfile(id: profile.id)
+        context.hostsManager.switchEnvironment(to: profile.id, policy: .askIfPending)
         context.dismiss()
     }
 }
 
 struct ClearProfileCommand: PaletteCommand {
     var id: String { "clear-profile" }
-    var title: String { "Bỏ chọn profile" }
-    var subtitle: String? { "Hiện tất cả host" }
+    var title: String { "Tắt môi trường đang bật" }
+    var subtitle: String? { "Ghi vào /etc/hosts" }
     var icon: String { "circle.dashed" }
     var iconTint: Color { DS.Colors.inkSecondary }
     var category: CommandCategory { .profileActions }
     var shortcutHint: String? { "⌘0" }
 
     func execute(in context: PaletteContext) {
-        context.select(.systemHosts)
-        context.hostsManager.switchProfile(to: nil)
+        context.hostsManager.switchEnvironment(to: nil, policy: .askIfPending)
         context.dismiss()
     }
 }

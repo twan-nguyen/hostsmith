@@ -143,7 +143,7 @@ final class EnvFileManager {
             throw EnvError.fileReadFailed(error.localizedDescription)
         }
         let entries = EnvParser.parse(content)
-        return EnvFile(relativePath: relativePath, entries: entries)
+        return EnvFile(relativePath: relativePath, entries: entries, diskContent: content)
     }
 
     /// Async variant: chạy disk read + parse trên background để tránh block main actor khi lần đầu load.
@@ -164,7 +164,7 @@ final class EnvFileManager {
                 throw EnvError.fileReadFailed(error.localizedDescription)
             }
             let entries = EnvParser.parse(content)
-            return EnvFile(relativePath: relativePath, entries: entries)
+            return EnvFile(relativePath: relativePath, entries: entries, diskContent: content)
         }.value
     }
 
@@ -185,11 +185,14 @@ final class EnvFileManager {
         }
     }
 
-    func applyChanges(repoId: UUID, file: EnvFile) throws {
+    /// Writes the file's entries. Unless `force`, refuses when the file changed on disk
+    /// since Hosven read it, and records the conflict for the pane to show.
+    func applyChanges(repoId: UUID, file: EnvFile, force: Bool = false) throws {
         guard let repo = repos.first(where: { $0.id == repoId }) else {
             throw EnvError.repoNotFound
         }
         try validateRelativePath(file.relativePath)
+        if !force { try guardAgainstExternalChange(repoId: repoId, relativePath: file.relativePath) }
 
         let targetURL = URL(fileURLWithPath: repo.path).appendingPathComponent(file.relativePath)
         let content = EnvParser.format(file.entries)
@@ -199,7 +202,9 @@ final class EnvFileManager {
             cached.entries = file.entries
             cached.pristineEntries = file.entries
             cached.rawTextDirty = false
+            cached.diskContent = content
         }
+        externalConflicts[Self.conflictKey(repoId, file.relativePath)] = nil
 
         showToast("Đã ghi \(file.entries.filter { !$0.isBlankOrComment }.count) biến vào \(file.relativePath)", type: .success)
     }
@@ -231,12 +236,14 @@ final class EnvFileManager {
         repoId: UUID,
         fileId: UUID,
         relativePath: String,
-        rawText: String
+        rawText: String,
+        force: Bool = false
     ) throws {
         guard let repo = repos.first(where: { $0.id == repoId }) else {
             throw EnvError.repoNotFound
         }
         try validateRelativePath(relativePath)
+        if !force { try guardAgainstExternalChange(repoId: repoId, relativePath: relativePath) }
 
         let content = rawText.hasSuffix("\n") ? rawText : rawText + "\n"
         let targetURL = URL(fileURLWithPath: repo.path).appendingPathComponent(relativePath)
@@ -247,7 +254,9 @@ final class EnvFileManager {
             cached.entries = reparsed
             cached.pristineEntries = reparsed
             cached.rawTextDirty = false
+            cached.diskContent = content
         }
+        externalConflicts[Self.conflictKey(repoId, relativePath)] = nil
 
         showToast("Đã ghi \(reparsed.filter { !$0.isBlankOrComment }.count) biến vào \(relativePath)", type: .success)
     }
@@ -307,6 +316,114 @@ final class EnvFileManager {
             file.entries = file.pristineEntries
             file.rawTextDirty = false
         }
+    }
+
+    // MARK: - External changes
+
+    enum ExternalChange: Equatable {
+        /// The file on disk differs from what Hosven last read or wrote.
+        case changed
+        /// The file is gone: deleted, or renamed away without a replacement.
+        case missing
+    }
+
+    enum DiskState: Equatable {
+        case unchanged
+        case changed(String)
+        case missing
+    }
+
+    /// Files that changed on disk while they held pending edits, keyed by `conflictKey`.
+    /// A file in here is not written until the person reloads it or forces the write.
+    var externalConflicts: [String: ExternalChange] = [:]
+
+    static func conflictKey(_ repoId: UUID, _ relativePath: String) -> String {
+        "\(repoId)|\(relativePath)"
+    }
+
+    func externalChange(repoId: UUID, relativePath: String) -> ExternalChange? {
+        externalConflicts[Self.conflictKey(repoId, relativePath)]
+    }
+
+    /// Compares the file on disk with the content Hosven last read or wrote.
+    /// A cached file without `diskContent` was never read from disk and counts as unchanged.
+    func diskState(repoId: UUID, relativePath: String) -> DiskState {
+        guard let repo = repos.first(where: { $0.id == repoId }),
+              let cached = loadedFile(repoId: repoId, relativePath: relativePath),
+              let known = cached.diskContent else { return .unchanged }
+        let url = URL(fileURLWithPath: repo.path).appendingPathComponent(relativePath)
+        guard FileManager.default.fileExists(atPath: url.path) else { return .missing }
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return .unchanged }
+        return content == known ? .unchanged : .changed(content)
+    }
+
+    /// Replaces the cached file with what is on disk, dropping pending edits.
+    func reloadFromDisk(repoId: UUID, relativePath: String) throws {
+        let file = try loadFile(repoId: repoId, relativePath: relativePath)
+        setLoadedFile(repoId: repoId, file: file)
+        externalConflicts[Self.conflictKey(repoId, relativePath)] = nil
+    }
+
+    /// Brings a cached file in line with the disk: a clean file reloads in place, a file
+    /// with pending edits (or one that disappeared) is recorded as a conflict.
+    func refreshFromDisk(repoId: UUID, relativePath: String) {
+        guard let cached = loadedFile(repoId: repoId, relativePath: relativePath) else { return }
+        let key = Self.conflictKey(repoId, relativePath)
+        switch diskState(repoId: repoId, relativePath: relativePath) {
+        case .unchanged:
+            return
+        case .missing:
+            externalConflicts[key] = .missing
+        case .changed:
+            if cached.hasUnsavedChanges {
+                externalConflicts[key] = .changed
+            } else if (try? reloadFromDisk(repoId: repoId, relativePath: relativePath)) != nil {
+                showToast("Đã tải lại \(relativePath) vì file vừa đổi bên ngoài", type: .info)
+            }
+        }
+    }
+
+    func dismissExternalChange(repoId: UUID, relativePath: String) {
+        externalConflicts[Self.conflictKey(repoId, relativePath)] = nil
+    }
+
+    private func guardAgainstExternalChange(repoId: UUID, relativePath: String) throws {
+        let key = Self.conflictKey(repoId, relativePath)
+        switch diskState(repoId: repoId, relativePath: relativePath) {
+        case .unchanged:
+            return
+        case .changed:
+            externalConflicts[key] = .changed
+        case .missing:
+            externalConflicts[key] = .missing
+        }
+        throw EnvError.externalConflict
+    }
+
+    private var fileWatcher: FileWatcher?
+    private var watchedFile: (repoId: UUID, relativePath: String)?
+
+    /// Watches only the selected file; pass `nil` to stop. Each event re-arms the watcher
+    /// first, because editors save by renaming a temp file over the original and the old
+    /// descriptor then points at a dead inode.
+    func watchSelectedFile(repoId: UUID, relativePath: String?) {
+        if let watched = watchedFile, watched.repoId == repoId, watched.relativePath == relativePath { return }
+        fileWatcher?.stop()
+        fileWatcher = nil
+        watchedFile = nil
+        guard let relativePath, let repo = repos.first(where: { $0.id == repoId }) else { return }
+        let path = (repo.path as NSString).appendingPathComponent(relativePath)
+        let watcher = FileWatcher(path: path, debounceInterval: 0.3)
+        watcher.onChange = { [weak self, weak watcher] _ in
+            MainActor.assumeIsolated {
+                watcher?.stop()
+                watcher?.start()
+                self?.refreshFromDisk(repoId: repoId, relativePath: relativePath)
+            }
+        }
+        watcher.start()
+        fileWatcher = watcher
+        watchedFile = (repoId, relativePath)
     }
 
     // MARK: - In-memory cache
@@ -487,6 +604,7 @@ final class EnvFileManager {
 
         // Invalidate cached files so next read pulls from disk
         loadedFiles[repoId] = nil
+        externalConflicts = externalConflicts.filter { !$0.key.hasPrefix("\(repoId)|") }
         showToast("Đã áp dụng profile \(profile.name)", type: .success)
     }
 

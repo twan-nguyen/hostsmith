@@ -1,12 +1,14 @@
 import Foundation
 
-/// Watches `/etc/hosts` for external modifications (Docker, terminal, other tools).
+/// Watches one file (`/etc/hosts`, the selected `.env`) for external modifications.
 /// Coalesces FS events with a debounce so a single edit doesn't fire 5 callbacks.
+/// The descriptor follows the inode: after an atomic save (write temp, rename over) the
+/// watcher reports `.deleted`, and the caller restarts it to pick up the new file.
 ///
 /// Lifecycle: caller creates instance → calls `start()` → receives `onChange` → calls
 /// `stop()` (or lets deinit run). Safe to start/stop repeatedly. Self-write suppression
 /// is the caller's responsibility — typically suspend before applyChanges, resume after.
-final class HostsFileWatcher {
+final class FileWatcher {
     enum Event {
         case modified
         case deleted

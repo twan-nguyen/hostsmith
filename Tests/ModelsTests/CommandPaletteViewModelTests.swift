@@ -18,6 +18,8 @@ struct CommandPaletteViewModelTests {
 
     private func makeManagers(profiles: [Profile] = Profile.defaults) -> (HostsFileManager, EnvFileManager) {
         let hosts = HostsFileManager(profileStore: StubProfileStore(profiles), autoLoad: false)
+        // Every profile gets one disabled entry, so each can be switched to and none is active.
+        hosts.parseHostsContent(profiles.map { "## [tag:\($0.name)]\n# 127.0.0.1\t\($0.name.lowercased()).test\n## [/tag:\($0.name)]" }.joined(separator: "\n"))
         let env = EnvFileManager(storageURL: URL(fileURLWithPath: "/tmp/test-env-\(UUID()).json"))
         return (hosts, env)
     }
@@ -40,11 +42,18 @@ struct CommandPaletteViewModelTests {
         #expect(!vm.flat.isEmpty)
     }
 
-    @Test("Empty query lists all profiles + clear + open system hosts + open ports")
+    @Test("Empty query lists environments + open system hosts + open ports")
     func emptyQueryUniverseSize() {
         let (vm, _) = makeVM()
-        // 3 default profiles + 1 clear + open system hosts + open ports (no repos) = 6
-        #expect(vm.flat.count == 6)
+        // 3 default environments + open system hosts + open ports (no repos); nothing active, so no clear
+        #expect(vm.flat.count == 5)
+        #expect(!vm.flat.contains { $0 is ClearProfileCommand })
+    }
+
+    @Test("Blocks are not offered as environments to switch to")
+    func blocksNotOffered() {
+        let (vm, _) = makeVM(profiles: Profile.defaults + [Profile(name: "Docker", color: .purple)])
+        #expect(!vm.flat.contains { ($0 as? SwitchProfileCommand)?.profile.name == "Docker" })
     }
 
     // MARK: - Query filtering
@@ -125,10 +134,10 @@ struct CommandPaletteViewModelTests {
     @Test("Switch profile command marks active profile")
     func activeProfileMarked() {
         let (vm, hosts) = makeVM()
-        let releaseId = hosts.profiles.first(where: { $0.name == "Release" })!.id
-        hosts.switchProfile(to: releaseId)
+        hosts.parseHostsContent("## [tag:Release]\n127.0.0.1\trelease.test\n## [/tag:Release]\n")
         // Force rebuild via a query change.
         vm.query = ""
+        #expect(vm.flat.contains { $0 is ClearProfileCommand })
         let release = vm.flat.compactMap { $0 as? SwitchProfileCommand }
             .first { $0.profile.name == "Release" }
         #expect(release?.isActive == true)
@@ -192,11 +201,11 @@ struct CommandPaletteViewModelTests {
     @Test("Per-section cap prevents 100 profiles flooding palette")
     func sectionCapEnforced() {
         let many = (0..<100).map { i in
-            Profile(name: "Profile-\(i)", color: .purple, shortcutNumber: nil)
+            Profile(name: "Profile-\(i)", color: .purple, shortcutNumber: nil, isExclusive: true)
         }
         let (vm, _) = makeVM(profiles: many)
         vm.query = "Profile"
         let switchCount = vm.flat.filter { $0 is SwitchProfileCommand }.count
-        #expect(switchCount <= 8)
+        #expect(switchCount == 8)
     }
 }

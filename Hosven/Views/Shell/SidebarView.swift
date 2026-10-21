@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 /// The source list: a `surfaceSidebar` column one warm step below the ground,
-/// with fixed groups Profiles, Hosts, Repos, Tools. Spec: `components/Sidebar/README.md`.
+/// with fixed groups Môi trường, Hosts, Repos, Tools. Spec: `components/Sidebar/README.md`.
 /// The top strip holds the traffic lights, then the app mark and name. The sidebar never holds an action: adding,
 /// renaming and removing live in context menus, the toolbar and the app menu.
 struct SidebarView: View {
@@ -107,16 +107,18 @@ struct SidebarView: View {
 
     // MARK: - Groups
 
+    /// Environments: switching to one turns the others off and writes `/etc/hosts`.
     private var profilesGroup: some View {
         Group {
-            groupLabel("Profiles")
+            groupLabel("Môi trường")
                 .contextMenu { addProfileMenuItem }
-            if isExpanded("Profiles") {
-                if hostsManager.profiles.isEmpty {
-                    emptyHint("Chưa có profile")
+            if isExpanded("Môi trường") {
+                if hostsManager.environmentProfiles.isEmpty {
+                    emptyHint("Chưa có môi trường")
                 }
-                ForEach(hostsManager.profiles, id: \.id) { profile in
+                ForEach(hostsManager.environmentProfiles, id: \.id) { profile in
                     let isActive = hostsManager.activeProfileID == profile.id
+                    let count = hostsManager.tagEntryCount(name: profile.name)
                     sidebarRow(
                         glyph: "square.stack.3d.up",
                         title: profile.name,
@@ -126,23 +128,30 @@ struct SidebarView: View {
                         if isActive {
                             DSChip(text: activeChipText(profile), color: profile.color)
                         } else {
-                            trailingCount(hostsManager.tagEntryCount(name: profile.name))
+                            trailingCount(count)
                         }
                     } action: {
                         selection = .profile(profile.id)
                     }
                     .contextMenu {
-                        Button("Kích hoạt") { hostsManager.activateProfile(id: profile.id) }
-                            .disabled(isActive)
-                        Button("Đổi tên") { profileSheet = .rename(profile) }
-                        Divider()
-                        Button("Xoá profile", role: .destructive) { deleteTarget = profile }
+                        if isActive {
+                            Button("Tắt \(profile.name)") {
+                                hostsManager.switchEnvironment(to: nil, policy: .askIfPending)
+                            }
+                        } else {
+                            Button("Chuyển sang \(profile.name)") {
+                                hostsManager.switchEnvironment(to: profile.id, policy: .askIfPending)
+                            }
+                            .disabled(count == 0)
+                        }
+                        profileMenuItems(profile)
                     }
                 }
             }
         }
     }
 
+    /// System hosts, then blocks: profiles that are not environments, and tags without a profile.
     private var hostsGroup: some View {
         Group {
             groupLabel("Hosts")
@@ -157,7 +166,26 @@ struct SidebarView: View {
                 } action: {
                     selection = .systemHosts
                 }
-                // A block that has a profile is already listed under Profiles; only orphan blocks appear here.
+                ForEach(hostsManager.blockProfiles, id: \.id) { profile in
+                    let state = hostsManager.tagState(name: profile.name)
+                    sidebarRow(
+                        title: profile.name,
+                        isChild: true,
+                        isSelected: selection == .profile(profile.id),
+                        identifier: "sidebar-block-\(profile.name)"
+                    ) {
+                        HStack(spacing: DS.Spacing.space2) {
+                            if state != .allDisabled {
+                                Circle().fill(DS.Colors.success).frame(width: 6, height: 6)
+                                    .accessibilityLabel("Đang bật")
+                            }
+                            trailingCount(hostsManager.tagEntryCount(name: profile.name))
+                        }
+                    } action: {
+                        selection = .profile(profile.id)
+                    }
+                    .contextMenu { profileMenuItems(profile) }
+                }
                 let profileNames = Set(hostsManager.profiles.map(\.name))
                 ForEach(hostsManager.tags.filter { !profileNames.contains($0.name) }) { tag in
                     sidebarRow(
@@ -173,6 +201,17 @@ struct SidebarView: View {
                 }
             }
         }
+    }
+
+    /// Edit, change kind and delete, shared by environment and block rows.
+    @ViewBuilder
+    private func profileMenuItems(_ profile: Profile) -> some View {
+        Button("Sửa") { profileSheet = .rename(profile) }
+        Button(profile.isExclusive ? "Chuyển thành block" : "Chuyển thành môi trường") {
+            hostsManager.updateProfileExclusive(id: profile.id, !profile.isExclusive)
+        }
+        Divider()
+        Button("Xoá profile", role: .destructive) { deleteTarget = profile }
     }
 
     private var reposGroup: some View {

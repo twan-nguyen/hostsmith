@@ -122,13 +122,13 @@ final class CommandPaletteViewModel {
         }
 
         if let hosts = hostsManager {
-            for profile in hosts.profiles {
-                commands.append(SwitchProfileCommand(
-                    profile: profile,
-                    isActive: hosts.activeProfileID == profile.id
-                ))
+            let active = hosts.activeProfileID
+            for profile in hosts.environmentProfiles where hosts.tagEntryCount(name: profile.name) > 0 {
+                commands.append(SwitchProfileCommand(profile: profile, isActive: active == profile.id))
             }
-            commands.append(ClearProfileCommand())
+            if hosts.activeProfileState != .none {
+                commands.append(ClearProfileCommand())
+            }
         }
 
         return commands
