@@ -172,6 +172,7 @@ pub fn settings_update(
 ) -> Result<Settings, String> {
     let settings = state.update(patch)?;
     apply(&app, &settings)?;
+    crate::tray::set_enabled(&app, settings.show_menu_bar_extra);
     let _ = app.emit(EVENT, settings.clone());
     Ok(settings)
 }

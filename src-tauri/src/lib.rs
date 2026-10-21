@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
+use tauri::webview::PageLoadEvent;
 use tauri::{Manager, RunEvent};
+use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_window_state::StateFlags;
 
 mod appearance;
 mod config;
@@ -16,6 +19,8 @@ mod ports;
 mod profiles;
 mod settings;
 mod toast;
+mod tray;
+mod url_command;
 mod watcher;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -25,11 +30,28 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_positioner::init())
+        .plugin(
+            // The panel always opens under the menu bar icon.
+            tauri_plugin_window_state::Builder::new()
+                .with_denylist(&["panel"])
+                .with_state_flags(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED)
+                .build(),
+        )
         .manage(menu::MenuState::default())
+        .manage(tray::TrayState::default())
+        .manage(url_command::UrlQueue::default())
         .on_menu_event(menu::handle)
+        .on_window_event(tray::on_window_event)
+        .on_page_load(|webview, payload| {
+            if webview.label() == "main" && payload.event() == PageLoadEvent::Finished {
+                url_command::window_loaded(webview.app_handle());
+            }
+        })
         .setup(|app| {
             let settings = settings::SettingsState::load();
             settings::apply(app.handle(), &settings.get())?;
+            let show_tray = settings.get().show_menu_bar_extra;
             app.manage(settings);
             let runner: platform::SharedRunner = Arc::new(platform::SystemRunner::new());
             app.manage(hosts::HostsServices {
@@ -46,6 +68,8 @@ pub fn run() {
             app.manage(hosts::HostsState::load());
             menu::sync(app.handle(), &app.state::<hosts::HostsState>().lock());
             app.manage(env::EnvState::load());
+            tray::set_enabled(app.handle(), show_tray);
+            listen_for_links(app.handle());
             match hosts::watch(app.handle()) {
                 Ok(watch) => {
                     app.manage(watch);
@@ -85,6 +109,10 @@ pub fn run() {
             settings::settings_get,
             settings::settings_update,
             settings::settings_preview_transparency,
+            tray::panel_toggle_block,
+            tray::panel_open_main,
+            tray::panel_hide,
+            tray::panel_quit,
             ports::ports_snapshot,
             ports::ports_scan,
             ports::ports_kill,
@@ -123,12 +151,38 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| {
-            if let RunEvent::Exit = event {
+        .run(|app, event| match event {
+            // A click on the Dock icon.
+            #[cfg(target_os = "macos")]
+            RunEvent::Reopen { .. } => tray::show_main(app),
+            // Only closing every window asks without a code; quitting does not.
+            RunEvent::ExitRequested {
+                code: None, api, ..
+            } if tray::keeps_running(app) => api.prevent_exit(),
+            RunEvent::Exit => {
                 // Root rights must not outlive the app.
                 if let Some(runner) = app.try_state::<platform::SharedRunner>() {
                     runner.release();
                 }
             }
+            _ => {}
         });
+}
+
+/// Routes `hosven://` links to the app. Setup runs before the event loop,
+/// so on macOS a link that launched the app arrives later through the
+/// listener; `get_current` covers the platforms that pass it as an argument,
+/// which the listener never sees. Neither path repeats the other.
+fn listen_for_links(app: &tauri::AppHandle) {
+    if let Ok(Some(urls)) = app.deep_link().get_current() {
+        for url in urls {
+            url_command::receive(app, url.into());
+        }
+    }
+    let handle = app.clone();
+    app.deep_link().on_open_url(move |event| {
+        for url in event.urls() {
+            url_command::receive(&handle, url.into());
+        }
+    });
 }

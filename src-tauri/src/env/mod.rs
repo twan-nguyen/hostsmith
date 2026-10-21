@@ -104,7 +104,11 @@ fn emit(app: &AppHandle, env: &Env) {
     let _ = app.emit(EVENT, env.snapshot());
 }
 
-fn mutate<T>(app: &AppHandle, state: &EnvState, change: impl FnOnce(&mut Env) -> T) -> T {
+pub(crate) fn mutate<T>(
+    app: &AppHandle,
+    state: &EnvState,
+    change: impl FnOnce(&mut Env) -> T,
+) -> T {
     let result = {
         let mut env = state.lock();
         let result = change(&mut env);

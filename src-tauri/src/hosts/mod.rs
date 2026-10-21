@@ -83,9 +83,14 @@ pub struct HostsServices {
 fn emit(app: &AppHandle, hosts: &Hosts) {
     let _ = app.emit(EVENT, hosts.snapshot());
     crate::menu::sync(app, hosts);
+    crate::tray::sync(app, hosts);
 }
 
-fn mutate<T>(app: &AppHandle, state: &HostsState, change: impl FnOnce(&mut Hosts) -> T) -> T {
+pub(crate) fn mutate<T>(
+    app: &AppHandle,
+    state: &HostsState,
+    change: impl FnOnce(&mut Hosts) -> T,
+) -> T {
     let mut hosts = state.lock();
     let result = change(&mut hosts);
     emit(app, &hosts);
@@ -94,7 +99,7 @@ fn mutate<T>(app: &AppHandle, state: &HostsState, change: impl FnOnce(&mut Hosts
 
 /// Runs a prepared write off the model's lock, since the password prompt can
 /// stay open for a while, then checks the hostnames it changed.
-async fn run(app: AppHandle, step: Step) -> Outcome {
+pub(crate) async fn run(app: AppHandle, step: Step) -> Outcome {
     let state = app.state::<HostsState>();
     let job = match step {
         Step::Done(outcome) => {
