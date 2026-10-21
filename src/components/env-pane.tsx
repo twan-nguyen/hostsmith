@@ -1,4 +1,3 @@
-import { open } from "@tauri-apps/plugin-dialog";
 import { Ellipsis, Plus, Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -31,7 +30,6 @@ import {
   type ToastKind,
   envAddEntry,
   envAddMissing,
-  envAddRepo,
   envApply,
   envApplyRaw,
   envDeleteEntry,
@@ -42,6 +40,7 @@ import {
   envReloadFromDisk,
   envRemoveRepo,
   envSelect,
+  envMergeRawDraft,
   envSetRawDraft,
   gitAddToGitignore,
   gitExposure,
@@ -88,16 +87,7 @@ export function EnvPane() {
 }
 
 function NoRepos() {
-  const { run, select } = useStore();
-
-  async function addRepo() {
-    const path = await open({ directory: true, title: "Chọn thư mục gốc của project" }).catch(() => null);
-    if (typeof path !== "string") return;
-    const before = new Set(useStore.getState().env?.repos.map((r) => r.id));
-    await run(envAddRepo(path));
-    const added = useStore.getState().env?.repos.find((r) => !before.has(r.id));
-    if (added) select({ kind: "repo", id: added.id });
-  }
+  const addRepo = useStore((s) => s.addRepo);
 
   return (
     <Panel>
@@ -135,9 +125,9 @@ function RepoPane({ repo, env }: { repo: EnvRepo; env: EnvSnapshot }) {
   // MARK: - Raw draft
 
   // What the raw editor holds when it differs from the backend's text. The
-  // backend hears about it after a pause, and at once when the editor loses
-  // focus. It is not sent on unmount: by then the selection may already point
-  // at another file, and the draft would land there.
+  // backend hears about it after a pause, at once when the editor loses focus,
+  // and when the pane closes; each draft names its file, so it never lands in
+  // another one.
   const [draft, setDraft] = useState<string | null>(null);
   const unsent = useRef<{ text: string; repo: string; file: string } | null>(null);
   const draftTimer = useRef<number | undefined>(undefined);
@@ -148,10 +138,9 @@ function RepoPane({ repo, env }: { repo: EnvRepo; env: EnvSnapshot }) {
     const pending = unsent.current;
     unsent.current = null;
     if (!pending) return;
-    const { env: latest } = useStore.getState();
-    // Only the file the text was typed into may receive it.
-    if (latest?.selectedRepo !== pending.repo || latest.selectedFile !== pending.file) return;
-    await run(envSetRawDraft(pending.text));
+    // The draft names the file it was typed into, so a selection that moved
+    // meanwhile does not receive it.
+    await run(envSetRawDraft(pending.repo, pending.file, pending.text));
   }
 
   function onRawChange(text: string) {
@@ -181,7 +170,7 @@ function RepoPane({ repo, env }: { repo: EnvRepo; env: EnvSnapshot }) {
     window.addEventListener("pointerdown", onPointerDown, true);
     return () => {
       window.removeEventListener("pointerdown", onPointerDown, true);
-      window.clearTimeout(draftTimer.current);
+      void flushRef.current();
     };
   }, []);
 
@@ -201,7 +190,7 @@ function RepoPane({ repo, env }: { repo: EnvRepo; env: EnvSnapshot }) {
     if (next === "table" && draft !== null) {
       // The table shows entries, so the raw text is folded into them first.
       await flushDraft();
-      if (file && draft !== env.text) await run(envSelect(repo.id, file));
+      if (draft !== env.text) await run(envMergeRawDraft());
     }
     dropDraft();
     setEnvViewMode(next);

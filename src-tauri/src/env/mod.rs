@@ -235,8 +235,21 @@ pub fn env_discard(app: AppHandle, state: State<'_, EnvState>) -> Result<(), Str
 }
 
 #[tauri::command]
-pub fn env_set_raw_draft(app: AppHandle, state: State<'_, EnvState>, text: Option<String>) {
-    mutate(&app, &state, |e| e.set_raw_draft(text));
+pub fn env_set_raw_draft(
+    app: AppHandle,
+    state: State<'_, EnvState>,
+    repo_id: Uuid,
+    relative_path: String,
+    text: Option<String>,
+) {
+    mutate(&app, &state, |e| {
+        e.set_raw_draft(repo_id, &relative_path, text)
+    });
+}
+
+#[tauri::command]
+pub fn env_merge_raw_draft(app: AppHandle, state: State<'_, EnvState>) -> Result<(), String> {
+    mutate(&app, &state, Env::merge_raw_draft)
 }
 
 #[tauri::command]

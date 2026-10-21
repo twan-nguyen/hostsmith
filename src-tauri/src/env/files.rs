@@ -365,7 +365,7 @@ mod tests {
         let mut f = Fixture::standard();
         let bar = f.entry("BAR").id;
         let text = "FOO=2\n#  odd   spacing\nBAR=2\n";
-        f.env.set_raw_draft(Some(text.into()));
+        f.env.set_raw_draft(f.repo, ".env", Some(text.into()));
         assert!(f.env.snapshot().dirty);
         f.env.apply_raw(text, false).unwrap();
         assert_eq!(f.disk(".env"), text);

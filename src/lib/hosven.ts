@@ -247,7 +247,9 @@ export const envDeleteEntry = (id: string) => invoke<void>("env_delete_entry", {
 export const envSelectVariant = (key: string, id: string) => invoke<void>("env_select_variant", { key, id });
 export const envAddMissing = () => invoke<number>("env_add_missing");
 export const envDiscard = () => invoke<void>("env_discard");
-export const envSetRawDraft = (text: string | null) => invoke<void>("env_set_raw_draft", { text });
+export const envSetRawDraft = (repoId: string, relativePath: string, text: string | null) =>
+  invoke<void>("env_set_raw_draft", { repoId, relativePath, text });
+export const envMergeRawDraft = () => invoke<void>("env_merge_raw_draft");
 export const envApply = (force: boolean) => invoke<EnvOutcome>("env_apply", { force });
 export const envApplyRaw = (text: string, force: boolean) => invoke<EnvOutcome>("env_apply_raw", { text, force });
 export const envReloadFromDisk = () => invoke<void>("env_reload_from_disk");

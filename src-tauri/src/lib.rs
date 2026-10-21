@@ -111,6 +111,7 @@ pub fn run() {
             env::env_add_missing,
             env::env_discard,
             env::env_set_raw_draft,
+            env::env_merge_raw_draft,
             env::env_apply,
             env::env_apply_raw,
             env::env_reload_from_disk,

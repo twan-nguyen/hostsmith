@@ -161,12 +161,22 @@ export function CodeEditor({
     });
   }, [value]);
 
+  const lastQuery = useRef("");
+
   useImperativeHandle(ref, () => ({
     focus: () => view.current?.focus(),
     find: (query) => {
       const editor = view.current;
       if (!editor || !query) return;
-      editor.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: query, caseSensitive: false })) });
+      // A changed query searches from where the current match starts, so
+      // typing "ap" after "a" keeps the match at the cursor; the same query
+      // again moves on to the next one.
+      const refine = query !== lastQuery.current;
+      lastQuery.current = query;
+      editor.dispatch({
+        effects: setSearchQuery.of(new SearchQuery({ search: query, caseSensitive: false })),
+        ...(refine && { selection: EditorSelection.cursor(editor.state.selection.main.from) }),
+      });
       findNext(editor);
     },
     revealLine: (target) => {

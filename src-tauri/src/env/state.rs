@@ -605,11 +605,19 @@ impl Env {
         Ok(())
     }
 
-    /// Holds the raw editor's text, or `None` when the editor closes.
-    pub fn set_raw_draft(&mut self, text: Option<String>) {
-        if let Some(file) = self.selected_mut() {
+    /// Holds the raw editor's text for the file it was typed into, or `None`
+    /// when the editor closes. Naming the file keeps late typing from landing
+    /// in another file after the selection moved.
+    pub fn set_raw_draft(&mut self, repo_id: Uuid, relative_path: &str, text: Option<String>) {
+        if let Some(file) = self.loaded.get_mut(&(repo_id, relative_path.to_string())) {
             file.set_raw_draft(text);
         }
+    }
+
+    /// Folds the selected file's raw draft into its entries, as switching
+    /// from the raw editor to the table does.
+    pub fn merge_raw_draft(&mut self) -> Result<(), String> {
+        self.editable().map(|_| ())
     }
 
     // MARK: - Toast
@@ -925,7 +933,7 @@ mod tests {
     fn edits_fold_in_typing_from_the_raw_editor_first() {
         let mut f = Fixture::standard();
         f.env
-            .set_raw_draft(Some("FOO=1\nBAR=2\nTYPED=yes\n".into()));
+            .set_raw_draft(f.repo, ".env", Some("FOO=1\nBAR=2\nTYPED=yes\n".into()));
         f.env.add_entry(input("ADDED", "1")).unwrap();
         let keys: Vec<_> = f.file().entries.iter().map(|e| e.key.as_str()).collect();
         assert_eq!(keys, ["FOO", "BAR", "TYPED", "ADDED"]);

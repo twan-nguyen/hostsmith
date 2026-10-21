@@ -1,3 +1,4 @@
+import { open } from "@tauri-apps/plugin-dialog";
 import { create } from "zustand";
 
 import {
@@ -8,6 +9,7 @@ import {
   type Settings,
   type Toast,
   type Tools,
+  envAddRepo,
   envRefreshFromDisk,
   envSelect,
   envSnapshot,
@@ -84,6 +86,8 @@ type State = {
 
   init: () => Promise<void>;
   select: (selection: Selection) => void;
+  /** Asks for a project folder, adds it as a repo and opens it. */
+  addRepo: () => Promise<void>;
   openSettings: (page?: SettingsPage) => void;
   setSettingsPage: (page: SettingsPage) => void;
   closeSettings: () => void;
@@ -157,6 +161,19 @@ export const useStore = create<State>()((set, get) => ({
     writePref(PREFS.selection, formatSelection(selection));
     if (selection.kind === "repo") void get().run(envSelect(selection.id, null));
     if (selection.kind === "envFile") void get().run(envSelect(selection.repo, selection.path));
+  },
+
+  addRepo: async () => {
+    const path = await open({ directory: true, title: "Chọn thư mục gốc của project" }).catch(() => null);
+    if (typeof path !== "string") return;
+    const before = new Set(get().env?.repos.map((r) => r.id));
+    if (!(await get().run(envAddRepo(path).then(() => true)))) return;
+    // Read the list now rather than wait for the event, to open the new repo.
+    const env = await get().run(envSnapshot());
+    if (!env) return;
+    set({ env });
+    const added = env.repos.find((r) => !before.has(r.id));
+    if (added) get().select({ kind: "repo", id: added.id });
   },
 
   openSettings: (page) => {

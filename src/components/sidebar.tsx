@@ -1,4 +1,3 @@
-import { open } from "@tauri-apps/plugin-dialog";
 import {
   ArrowLeft,
   Box,
@@ -31,7 +30,6 @@ import { Kbd } from "@/components/ui/kbd";
 import {
   type EnvRepo,
   type Profile,
-  envAddRepo,
   envRemoveRepo,
   envRenameRepo,
   hostsSwitchEnvironment,
@@ -111,14 +109,7 @@ function AppNav() {
     void run(hostsSwitchEnvironment(on ? profile.id : null, "ask"));
   };
 
-  async function addRepo() {
-    const path = await open({ directory: true, title: "Chọn thư mục gốc của project" });
-    if (typeof path !== "string") return;
-    const before = new Set(useStore.getState().env?.repos.map((r) => r.id));
-    await run(envAddRepo(path));
-    const added = useStore.getState().env?.repos.find((r) => !before.has(r.id));
-    if (added) select({ kind: "repo", id: added.id });
-  }
+  const addRepo = useStore((s) => s.addRepo);
 
   const isSelected = (s: Selection) => sameSelection(selection, s);
 
