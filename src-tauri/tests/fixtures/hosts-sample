@@ -1,0 +1,34 @@
+##
+# Host Database
+#
+# localhost is used to configure the loopback interface
+# when the system is booting.  Do not change this entry.
+##
+127.0.0.1	localhost
+255.255.255.255	broadcasthost
+::1             localhost
+
+# Added by Docker Desktop
+# To allow the same kube context to work on the host and the container:
+127.0.0.1 kubernetes.docker.internal
+# End of section
+
+## [tag:Local]
+127.0.0.1	api.local.test	# local API
+127.0.0.1   web.local.test admin.local.test
+## [/tag:Local]
+
+## [tag:Staging]
+# 10.0.0.5	api.local.test # staging API
+#10.0.0.6 web.local.test
+## [/tag:Staging]
+
+## [tag:Blocklist]
+0.0.0.0 ads.example.com
+0.0.0.0	tracker.example.com
+## [/tag:Blocklist]
+10.0.0.9
+## [tag:local]
+127.0.0.1 extra.local.test
+## [/tag:local]
+fe80::1%lo0	localhost
