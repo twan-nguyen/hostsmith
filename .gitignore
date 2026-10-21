@@ -21,3 +21,6 @@ node_modules
 dist
 src-tauri/target
 src-tauri/gen/schemas
+
+# A local clone of the old tap, kept outside the repo.
+/homebrew-hosven

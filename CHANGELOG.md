@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.0.0 (unreleased)
+
+### ⚠ BREAKING CHANGES
+
+* Hosven is rewritten with Tauri 2, Rust and React. Releases come from `vX.Y.Z` tags and install with `brew install --cask twan-nguyen/tap/hosven`; the `twan-nguyen/hosven` tap is deprecated and Sparkle hands 1.x users over once.
+
+### Features
+
+* environments exclude each other: switching writes `/etc/hosts` once and turns the other environments off; blocks stay independent
+* every hosts write checks the hostnames it changed with the system resolver
+* `.env` files: masked secrets, variants for repeated keys, missing variables from `.env.example`, git exposure warnings, external-change protection
+* ports pane: listening TCP ports attributed to repos and containers, stop with SIGTERM then SIGKILL
+* menu bar panel, ⌘K palette and the `hosven://` URL scheme
+* configuration lives in `~/.config/hosven` (`profiles.json`, `env.json`, `settings.json`), migrated from the 1.x preferences
+
+### Bug Fixes
+
+* writing `/etc/hosts` no longer drops extra hostnames on a line, entries of a block whose marker differs in case, or bare-address lines, and disabled-entry comments no longer grow on every save
+* a failed copy to `/etc/hosts` is reported instead of shown as success, and the file is only replaced by a complete copy
+* the root shell runs with a clean environment and absolute tool paths
+
 ## [1.1.0](https://github.com/twan-nguyen/hosven/compare/v1.0.10...v1.1.0) (2026-05-18)
 
 
