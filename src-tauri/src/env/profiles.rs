@@ -145,7 +145,6 @@ impl Env {
     /// Applies a profile named by a `hosven://` link, without asking: a
     /// script cannot answer a dialog. Names match regardless of case. The
     /// repo is selected even when the profile is not found, as in Hosven 1.x.
-    #[allow(dead_code)] // Called by the deep-link handler.
     pub fn apply_profile_by_names(
         &mut self,
         repo_name: &str,

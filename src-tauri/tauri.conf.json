@@ -21,6 +21,19 @@
         "hiddenTitle": true,
         "label": "main",
         "transparent": true
+      },
+      {
+        "label": "panel",
+        "title": "Hosven",
+        "width": 340,
+        "height": 420,
+        "decorations": false,
+        "resizable": false,
+        "skipTaskbar": true,
+        "alwaysOnTop": true,
+        "visible": false,
+        "transparent": true,
+        "shadow": false
       }
     ],
     "security": {
