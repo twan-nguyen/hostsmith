@@ -1,173 +1,200 @@
-name: Build & Release
+name: Release
 
+# Push a tag such as v2.0.0 to build a universal macOS app, publish it as a GitHub release
+# and point the Homebrew cask in twan-nguyen/homebrew-tap at it.
 on:
   push:
-    tags:
-      - 'v*'
-  # Manual escape hatch: lets us rebuild an existing tag (e.g. when an earlier
-  # tag push was suppressed by GitHub's recursion guard).
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag to build (e.g. v1.0.7)'
-        required: true
-        type: string
+    tags: ["v*"]
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
-  build:
-    runs-on: macos-15
+  release:
+    runs-on: macos-latest
     env:
-      # Unified ref — either the tag that pushed, or the dispatch input.
-      TAG: ${{ inputs.tag || github.ref_name }}
+      APP_NAME: Hosven
+      BUNDLE_ID: com.twannguyen.hosven
+      TAP_REPOSITORY: twan-nguyen/homebrew-tap
+      # GitHub's published SSH host key, so the tap push never trusts an unknown host.
+      GITHUB_SSH_HOST_KEY: github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
     steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.tag || github.ref_name }}
-          # Full history + tags needed for changelog/diff computation in notify step.
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Record build start time
+      - name: Record start time
         id: start
-        run: echo "ts=$(date +%s)" >> $GITHUB_OUTPUT
+        run: echo "ts=$(date +%s)" >> "$GITHUB_OUTPUT"
 
-      - name: Setup Xcode 26
-        uses: maxim-lobanov/setup-xcode@v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          xcode-version: '26.0'
+          persist-credentials: false
+          # The Telegram summary lists the files changed since the previous tag.
+          fetch-depth: 0
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Generate Xcode Project
-        run: xcodegen generate
-
-      - name: Build Universal Binary
+      - name: Resolve version
         run: |
-          xcodebuild -project Hosven.xcodeproj \
-            -scheme Hosven \
-            -configuration Release \
-            -derivedDataPath build \
-            ARCHS="arm64 x86_64" \
-            ONLY_ACTIVE_ARCH=NO \
-            CODE_SIGN_IDENTITY="-" \
-            build
+          VERSION="${GITHUB_REF_NAME#v}"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Tag must look like v1.2.3"; exit 1; }
+          {
+            echo "VERSION=$VERSION"
+            echo "DIST=$RUNNER_TEMP/dist"
+            echo "APP_PATH=src-tauri/target/universal-apple-darwin/release/bundle/macos/$APP_NAME.app"
+          } >> "$GITHUB_ENV"
 
-      - name: Package ZIP
-        run: |
-          cd build/Build/Products/Release
-          zip -r Hosven-${{ env.TAG }}.zip Hosven.app
-
-      - name: Calculate SHA256
-        id: sha
-        run: |
-          SHA=$(shasum -a 256 build/Build/Products/Release/Hosven-${{ env.TAG }}.zip | awk '{print $1}')
-          echo "sha256=$SHA" >> $GITHUB_OUTPUT
-
-      - name: Create DMG
-        run: |
-          hdiutil create -volname "Hosven" \
-            -srcfolder build/Build/Products/Release/Hosven.app \
-            -ov -format UDZO \
-            build/Hosven-${{ env.TAG }}.dmg
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2.6.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
-          tag_name: ${{ env.TAG }}
-          files: |
-            build/Build/Products/Release/Hosven-${{ env.TAG }}.zip
-            build/Hosven-${{ env.TAG }}.dmg
-          body: |
-            ## Hosven ${{ env.TAG }}
+          version: 10
 
-            ### SHA256
-            - ZIP: `${{ steps.sha.outputs.sha256 }}`
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
 
-            ### Cài đặt
-            ```bash
-            brew install twan-nguyen/hosven/hosven
-            ```
+      - name: Install dependencies
+        run: |
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          pnpm install --frozen-lockfile
 
-            ### Cập nhật
-            App tự kiểm tra cập nhật qua Sparkle. Lần đầu cài qua Homebrew, sau đó update in-app.
+      - name: Test
+        run: |
+          pnpm test
+          cd src-tauri && cargo test
 
-            Hoặc tải file ZIP/DMG bên dưới.
+      - name: Build
+        run: |
+          # The version comes from the tag, so tauri.conf.json never needs bumping.
+          pnpm tauri build \
+            --target universal-apple-darwin \
+            --bundles app \
+            --config "{\"version\":\"$VERSION\"}"
+          test -d "$APP_PATH"
+          plutil -extract CFBundleShortVersionString raw "$APP_PATH/Contents/Info.plist"
+          # Sparkle in Hosven 1.x refuses an update without the key it trusts.
+          plutil -extract SUPublicEDKey raw "$APP_PATH/Contents/Info.plist" >/dev/null
+          lipo -archs "$APP_PATH"/Contents/MacOS/*
+          codesign --verify --strict "$APP_PATH"
+
+      - name: Package
+        id: package
+        run: |
+          mkdir -p "$DIST"
+          ZIP_NAME="$APP_NAME-$VERSION.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$DIST/$ZIP_NAME"
+          SHA256="$(shasum -a 256 "$DIST/$ZIP_NAME" | cut -d' ' -f1)"
+          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
+          echo "SHA256=$SHA256" >> "$GITHUB_ENV"
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "$DIST/$ZIP_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$APP_NAME $VERSION" \
+            --generate-notes \
+            --verify-tag
 
-      - name: Generate Sparkle appcast
+      # One time only: the last appcast item Hosven 1.x reads, so Sparkle users
+      # move to this build. Later versions update through Homebrew.
+      - name: Publish the Sparkle bridge
+        if: github.ref_name == 'v2.0.0'
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
-            echo "::warning::SPARKLE_PRIVATE_KEY not set, skipping appcast generation"
-            exit 0
-          fi
-          curl -fsSL -o /tmp/sparkle.tar.xz \
+          [ -n "$SPARKLE_PRIVATE_KEY" ] || { echo "::error::SPARKLE_PRIVATE_KEY is not set"; exit 1; }
+          curl -fsSL -o "$RUNNER_TEMP/sparkle.tar.xz" \
             https://github.com/sparkle-project/Sparkle/releases/download/2.7.0/Sparkle-2.7.0.tar.xz
-          mkdir -p /tmp/sparkle && tar -xJf /tmp/sparkle.tar.xz -C /tmp/sparkle
+          mkdir -p "$RUNNER_TEMP/sparkle" && tar -xJf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP/sparkle"
 
-          mkdir -p release-staging
-          cp build/Build/Products/Release/Hosven-${{ env.TAG }}.zip release-staging/
-          # Start fresh each release. Old appcast on gh-pages may contain stale
-          # unsigned entries (from prior broken runs) that generate_appcast
-          # would "update" rather than re-sign — leaving signatures empty.
-
-          # Use stdin per Sparkle docs (recommended over key file for CI).
-          # Strip any whitespace GitHub Actions may inject around the secret.
+          STAGING="$RUNNER_TEMP/appcast"
+          mkdir -p "$STAGING"
+          cp "$DIST/$ZIP_NAME" "$STAGING/"
           printf '%s' "$SPARKLE_PRIVATE_KEY" | tr -d '\r\n\t ' | \
-            /tmp/sparkle/bin/generate_appcast \
+            "$RUNNER_TEMP/sparkle/bin/generate_appcast" \
               --ed-key-file - \
-              --download-url-prefix "https://github.com/twan-nguyen/hosven/releases/download/${{ env.TAG }}/" \
-              release-staging/
+              --phased-rollout-interval 86400 \
+              --download-url-prefix "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/" \
+              "$STAGING"
+          cat "$STAGING/appcast.xml"
 
-          echo "--- appcast.xml ---"
-          cat release-staging/appcast.xml
-
-      - name: Publish appcast to gh-pages
-        if: env.SPARKLE_PRIVATE_KEY != ''
-        env:
-          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_branch: gh-pages
-          publish_dir: ./release-staging
-          keep_files: true
-          exclude_assets: '*.zip,*.dmg'
-          commit_message: "chore: publish appcast for ${{ env.TAG }}"
-
-      - name: Update Homebrew Tap
-        env:
-          TAP_REPO_TOKEN: ${{ secrets.TAP_REPO_TOKEN }}
-        run: |
-          VERSION="${{ env.TAG }}"
-          VERSION_CLEAN="${VERSION#v}"
-          SHA256="${{ steps.sha.outputs.sha256 }}"
-
-          if [ -z "$TAP_REPO_TOKEN" ]; then
-            echo "::warning::TAP_REPO_TOKEN not set, skipping Homebrew tap update"
-            exit 0
-          fi
-
-          rm -rf /tmp/homebrew-tap
-          git clone https://x-access-token:${TAP_REPO_TOKEN}@github.com/twan-nguyen/homebrew-hosven.git /tmp/homebrew-tap
-          cd /tmp/homebrew-tap
-
-          sed -i '' "s/version \".*\"/version \"${VERSION_CLEAN}\"/" Casks/hosven.rb
-          sed -i '' "s/sha256 \".*\"/sha256 \"${SHA256}\"/" Casks/hosven.rb
-
+          PAGES="$RUNNER_TEMP/gh-pages"
+          git clone --branch gh-pages --depth 1 "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git" "$PAGES"
+          cp "$STAGING/appcast.xml" "$PAGES/appcast.xml"
+          cd "$PAGES"
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Casks/hosven.rb
-          git commit -m "chore: update hosven to v${VERSION_CLEAN}"
-          git push origin main
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add appcast.xml
+          git commit -m "chore: point the appcast at $APP_NAME $VERSION"
+          git push origin gh-pages
 
-          echo "✓ Homebrew tap updated to v${VERSION_CLEAN}"
+      - name: Update Homebrew cask
+        env:
+          TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
+        run: |
+          KEY_FILE="$RUNNER_TEMP/tap_deploy_key"
+          KNOWN_HOSTS="$RUNNER_TEMP/known_hosts"
+          printf '%s\n' "$TAP_DEPLOY_KEY" > "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
+          printf '%s\n' "$GITHUB_SSH_HOST_KEY" > "$KNOWN_HOSTS"
+          export GIT_SSH_COMMAND="ssh -i $KEY_FILE -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$KNOWN_HOSTS"
+
+          TAP_DIR="$RUNNER_TEMP/tap"
+          git clone "git@github.com:$TAP_REPOSITORY.git" "$TAP_DIR"
+          mkdir -p "$TAP_DIR/Casks"
+          cat > "$TAP_DIR/Casks/hosven.rb" <<CASK
+          cask "hosven" do
+            version "$VERSION"
+            sha256 "$SHA256"
+
+            url "https://github.com/$GITHUB_REPOSITORY/releases/download/v#{version}/$APP_NAME-#{version}.zip"
+            name "$APP_NAME"
+            desc "Quản lý /etc/hosts, file .env và cổng đang dùng trên macOS"
+            homepage "https://github.com/$GITHUB_REPOSITORY"
+
+            livecheck do
+              url :url
+              strategy :github_latest
+            end
+
+            depends_on macos: ">= :sequoia"
+
+            app "$APP_NAME.app"
+
+            # Ad-hoc signed and not notarized: clear the download quarantine so Gatekeeper lets it open.
+            postflight_steps do
+              run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{appdir}}/$APP_NAME.app"]
+            end
+
+            uninstall quit: "$BUNDLE_ID"
+
+            zap trash: [
+              "~/.config/hosven",
+              "~/Library/Application Support/$BUNDLE_ID",
+              "~/Library/Caches/$BUNDLE_ID",
+              "~/Library/Preferences/$BUNDLE_ID.plist",
+              "~/Library/Saved Application State/$BUNDLE_ID.savedState",
+              "~/Library/WebKit/$BUNDLE_ID",
+            ]
+          end
+          CASK
+          cat "$TAP_DIR/Casks/hosven.rb"
+
+          cd "$TAP_DIR"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/hosven.rb
+          if git diff --cached --quiet; then
+            echo "Cask already at $VERSION"
+          else
+            git commit -m "hosven $VERSION"
+            git push origin HEAD:main
+          fi
+          rm -f "$KEY_FILE"
 
       - name: Notify Telegram
         if: always()
@@ -179,20 +206,19 @@ jobs:
           SERVER: ${{ github.server_url }}
           RUN_ID: ${{ github.run_id }}
           RUN_NUMBER: ${{ github.run_number }}
-          SHA256: ${{ steps.sha.outputs.sha256 }}
+          SHA256: ${{ steps.package.outputs.sha256 }}
           START_TS: ${{ steps.start.outputs.ts }}
           ACTOR: ${{ github.actor }}
-          EVENT: ${{ github.event_name }}
+          TAG: ${{ github.ref_name }}
         run: |
           if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
             echo "::notice::Telegram secrets not set, skipping notification"
             exit 0
           fi
 
-          # ----- HTML escape helper for user-supplied content -----
+          # HTML-escapes text that comes from commits.
           esc() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
 
-          # ----- Status label -----
           STATUS_UP=$(echo "$STATUS" | tr '[:lower:]' '[:upper:]')
           case "$STATUS" in
             success)   EMOJI="🚀" ;;
@@ -201,7 +227,6 @@ jobs:
             *)         EMOJI="ℹ️" ;;
           esac
 
-          # ----- Duration -----
           if [ -n "$START_TS" ]; then
             ELAPSED=$(( $(date +%s) - START_TS ))
             DURATION="$((ELAPSED / 60))m $((ELAPSED % 60))s"
@@ -209,16 +234,10 @@ jobs:
             DURATION="—"
           fi
 
-          # ----- Artifact sizes -----
-          ZIP_PATH="build/Build/Products/Release/Hosven-${TAG}.zip"
-          DMG_PATH="build/Hosven-${TAG}.dmg"
+          ZIP_PATH="${DIST:-}/${ZIP_NAME:-}"
           ZIP_SIZE=$( [ -f "$ZIP_PATH" ] && du -h "$ZIP_PATH" | awk '{print $1}' || echo "—" )
-          DMG_SIZE=$( [ -f "$DMG_PATH" ] && du -h "$DMG_PATH" | awk '{print $1}' || echo "—" )
-
-          # ----- Short SHA -----
           SHA_SHORT=$( [ -n "$SHA256" ] && echo "${SHA256:0:12}…" || echo "—" )
 
-          # ----- Git context for the tagged commit -----
           COMMIT_SHA=$(git rev-parse HEAD)
           COMMIT_SHORT="${COMMIT_SHA:0:7}"
           COMMIT_MSG=$(git log -1 --pretty=%s | esc)
@@ -226,7 +245,6 @@ jobs:
           COMMIT_TIME=$(TZ='Asia/Saigon' date -j -f '%s' "$(git log -1 --pretty=%ct)" '+%Y-%m-%d %H:%M:%S %z' 2>/dev/null \
                           || git log -1 --pretty='%ci')
 
-          # ----- Changed files (vs previous tag) -----
           PREV_TAG=$(git describe --tags --abbrev=0 "HEAD^" 2>/dev/null || true)
           FILES_BLOCK=""
           if [ -n "$PREV_TAG" ]; then
@@ -241,29 +259,26 @@ jobs:
             fi
           fi
 
-          # ----- URLs -----
           REPO_URL="${SERVER}/${REPO}"
           RUN_URL="${REPO_URL}/actions/runs/${RUN_ID}"
           RELEASE_URL="${REPO_URL}/releases/tag/${TAG}"
-          DOWNLOAD_DMG="${REPO_URL}/releases/download/${TAG}/Hosven-${TAG}.dmg"
+          DOWNLOAD_ZIP="${REPO_URL}/releases/download/${TAG}/${ZIP_NAME:-}"
           COMMIT_URL="${REPO_URL}/commit/${COMMIT_SHA}"
 
-          # ----- Trailer changes from notify step into one block -----
           if [ "$STATUS" = "success" ]; then
-            ARTIFACTS_LINE=$(printf 'ZIP %s · DMG %s · SHA %s' "$ZIP_SIZE" "$DMG_SIZE" "$SHA_SHORT")
-            BOTTOM_LINKS=$(printf '<a href="%s">📥 Release</a>  ·  <a href="%s">⬇️ Tải DMG</a>  ·  <a href="%s">⚙️ Workflow</a>' \
-                            "$RELEASE_URL" "$DOWNLOAD_DMG" "$RUN_URL")
+            ARTIFACTS_LINE=$(printf 'ZIP %s · SHA %s' "$ZIP_SIZE" "$SHA_SHORT")
+            BOTTOM_LINKS=$(printf '<a href="%s">📥 Release</a>  ·  <a href="%s">⬇️ Tải ZIP</a>  ·  <a href="%s">⚙️ Workflow</a>' \
+                            "$RELEASE_URL" "$DOWNLOAD_ZIP" "$RUN_URL")
           else
             ARTIFACTS_LINE="(không có artifact)"
             BOTTOM_LINKS=$(printf '<a href="%s">🔍 Xem log workflow</a>' "$RUN_URL")
           fi
 
-          # ----- Compose -----
           TEXT=$(printf '%s\n' \
             "${EMOJI} <b>Project HOSVEN</b> build <b>${STATUS_UP}</b> #${RUN_NUMBER} ${EMOJI}" \
             "" \
             "<b>Repository:</b> ${REPO_URL}" \
-            "<b>Branch:</b> ${TAG}" \
+            "<b>Tag:</b> ${TAG}" \
             "<b>Commit:</b> <a href=\"${COMMIT_URL}\">${COMMIT_SHORT}</a>" \
             "<b>Committer:</b> ${COMMITTER} (@${ACTOR})" \
             "<b>Message:</b> ${COMMIT_MSG}" \
@@ -273,16 +288,15 @@ jobs:
             "" \
             "${BOTTOM_LINKS}")
 
-          # ----- Send -----
-          HTTP=$(curl -sS -o /tmp/tg.json -w "%{http_code}" \
+          HTTP=$(curl -sS -o "$RUNNER_TEMP/tg.json" -w "%{http_code}" \
             -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
             --data-urlencode "text=${TEXT}" \
             --data-urlencode "parse_mode=HTML" \
             --data-urlencode "disable_web_page_preview=true")
           if [ "$HTTP" = "200" ]; then
-            echo "✓ Telegram notification sent"
+            echo "Telegram notification sent"
           else
             echo "::warning::Telegram returned HTTP $HTTP"
-            cat /tmp/tg.json
+            cat "$RUNNER_TEMP/tg.json"
           fi
