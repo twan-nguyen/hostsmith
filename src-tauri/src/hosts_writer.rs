@@ -18,20 +18,28 @@ impl SystemHostsWriter {
 
 impl HostsWriter for SystemHostsWriter {
     fn write(&self, content: &str) -> WriteOutcome {
+        let bytes = content.as_bytes();
         write_outcome(
             self.runner
-                .run_with_input(&write_script(), content.as_bytes()),
+                .run_with_input(&write_script(bytes.len()), bytes),
         )
     }
 }
 
-/// `cat` reads the whole input before anything else prints, and the status
-/// reflects the write alone. Once the file is in place a failed cache flush
-/// must still read as written, or a switch would roll the model back while
-/// the disk holds the new content.
-fn write_script() -> String {
+/// The content goes to a root-owned file beside the hosts file first, and
+/// only a complete copy is renamed over it: if Hosven died mid-stream, `cat`
+/// would see an early end of input, and writing straight into the hosts file
+/// would leave it cut short. The status reflects the write alone; once the
+/// file is in place a failed cache flush must still read as written, or a
+/// switch would roll the model back while the disk holds the new content.
+fn write_script(len: usize) -> String {
     format!(
-        "/bin/cat > {HOSTS_PATH} || exit $?; \
+        "t=$(/usr/bin/mktemp /private/etc/hosts.hosven.XXXXXX) || exit $?; \
+         /bin/cat > \"$t\" || {{ /bin/rm -f \"$t\"; exit 1; }}; \
+         [ \"$(/usr/bin/wc -c < \"$t\" | /usr/bin/tr -d ' ')\" = \"{len}\" ] \
+         || {{ /bin/rm -f \"$t\"; echo 'nội dung nhận được không đủ' >&2; exit 1; }}; \
+         /bin/chmod 644 \"$t\" && /usr/sbin/chown root:wheel \"$t\" && /bin/mv -f \"$t\" {HOSTS_PATH} \
+         || {{ /bin/rm -f \"$t\"; exit 1; }}; \
          /usr/bin/dscacheutil -flushcache; /usr/bin/killall -HUP mDNSResponder 2>/dev/null; exit 0"
     )
 }
@@ -103,12 +111,24 @@ mod tests {
     /// Every command a root script runs is named by its absolute path, so the
     /// PATH it runs under never decides which program that is.
     fn commands_are_absolute(script: &str) -> bool {
-        script
-            .split([';', '|', '&'])
-            .map(str::trim)
-            .filter(|step| !step.is_empty())
-            .filter_map(|step| step.split_whitespace().next())
-            .all(|command| command.starts_with('/') || command == "exit")
+        const TOOLS: [&str; 11] = [
+            "cat",
+            "rm",
+            "mv",
+            "cp",
+            "chmod",
+            "chown",
+            "mktemp",
+            "wc",
+            "tr",
+            "dscacheutil",
+            "killall",
+        ];
+        let words: Vec<&str> = script
+            .split(|c: char| c.is_whitespace() || "(){};|&\"'".contains(c))
+            .filter(|w| !w.is_empty())
+            .collect();
+        words.iter().all(|word| !TOOLS.contains(word))
     }
 
     #[test]
@@ -118,13 +138,18 @@ mod tests {
     }
 
     #[test]
-    fn the_script_writes_its_input_then_flushes_without_letting_the_flush_fail_it() {
-        assert_eq!(
-            write_script(),
-            "/bin/cat > /etc/hosts || exit $?; \
-             /usr/bin/dscacheutil -flushcache; /usr/bin/killall -HUP mDNSResponder 2>/dev/null; exit 0"
+    fn the_script_replaces_the_file_only_with_a_complete_copy() {
+        let script = write_script(1234);
+        assert!(
+            script.starts_with("t=$(/usr/bin/mktemp /private/etc/hosts.hosven.XXXXXX) || exit $?;")
         );
-        assert!(commands_are_absolute(&write_script()));
+        assert!(script.contains("= \"1234\" ]"), "the byte count is checked");
+        assert!(script.contains("/bin/mv -f \"$t\" /etc/hosts"));
+        assert!(
+            script.ends_with("/usr/bin/killall -HUP mDNSResponder 2>/dev/null; exit 0"),
+            "a failed flush does not fail the write"
+        );
+        assert!(commands_are_absolute(&script));
         assert!(commands_are_absolute(&backup_script(Path::new(
             "/etc/hosts.backup.x"
         ))));
@@ -137,7 +162,7 @@ mod tests {
         assert_eq!(writer.write("127.0.0.1\tapi.test\n"), WriteOutcome::Written);
         let runs = recorder.runs.lock().unwrap();
         assert_eq!(runs.len(), 1);
-        assert_eq!(runs[0].0, write_script());
+        assert_eq!(runs[0].0, write_script(19));
         assert_eq!(runs[0].1, b"127.0.0.1\tapi.test\n");
     }
 
