@@ -95,6 +95,8 @@ export const hostsCancelPendingSwitch = () => invoke<void>("hosts_cancel_pending
 export const hostsSwitchPreview = (target: string | null) => invoke<SwitchPreview>("hosts_switch_preview", { target });
 export const hostsDismissVerification = () => invoke<void>("hosts_dismiss_verification");
 export const hostsExport = () => invoke<string>("hosts_export");
+/** Copies /etc/hosts beside itself as root; the outcome arrives as a toast. */
+export const hostsBackup = () => invoke<void>("hosts_backup");
 
 export const profilesAdd = (name: string, color: ProfileColor, isExclusive: boolean) =>
   invoke<Profile>("profiles_add", { name, color, isExclusive });

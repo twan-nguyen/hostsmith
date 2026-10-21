@@ -1,0 +1,229 @@
+import { useEffect, useId, useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { type HostEntry, hostsAddEntry, hostsUpdateEntry } from "@/lib/hosven";
+import { blockChoices, hostnameTaken, parseAliases } from "@/lib/hosts-view";
+import { cn, errorMessage } from "@/lib/utils";
+import { useStore } from "@/store";
+
+const QUICK_IPS = ["127.0.0.1", "0.0.0.0", "::1"];
+/** Radix Select reserves the empty value, so blocks carry a prefix and "no block" has its own value. */
+const NO_BLOCK = "none";
+const blockValue = (name: string | null | undefined) => (name ? `block:${name}` : NO_BLOCK);
+
+/**
+ * Adds an entry or edits one. The model checks the fields and its error is
+ * shown under the form; only the duplicate hostname is caught here, where
+ * the entries are at hand.
+ */
+export function EntryDialog({
+  open,
+  entry,
+  initialTag,
+  onClose,
+}: {
+  open: boolean;
+  /** `null` adds a new entry. */
+  entry: HostEntry | null;
+  /** The block a new entry starts in, such as the profile it was added from. */
+  initialTag?: string | null;
+  onClose: () => void;
+}) {
+  const hosts = useStore((s) => s.hosts);
+  const [ip, setIp] = useState("");
+  const [hostname, setHostname] = useState("");
+  const [aliases, setAliases] = useState("");
+  const [comment, setComment] = useState("");
+  const [tag, setTag] = useState(NO_BLOCK);
+  const [hostnameError, setHostnameError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const ids = { ip: useId(), hostname: useId(), aliases: useId(), comment: useId(), block: useId() };
+
+  useEffect(() => {
+    if (!open) return;
+    setIp(entry?.ip ?? "127.0.0.1");
+    setHostname(entry?.hostname ?? "");
+    setAliases(entry?.aliases.join(" ") ?? "");
+    setComment(entry?.comment ?? "");
+    setTag(blockValue(entry ? entry.tag : initialTag));
+    setHostnameError(null);
+    setError(null);
+  }, [open, entry, initialTag]);
+
+  const blocks = blockChoices(hosts?.tags ?? [], hosts?.profiles ?? [], entry ? entry.tag : initialTag);
+
+  async function submit() {
+    setHostnameError(null);
+    setError(null);
+    const name = hostname.trim();
+    if (!entry && hostnameTaken(hosts?.entries ?? [], name)) {
+      setHostnameError(`Hostname ${name} đã có trong /etc/hosts`);
+      return;
+    }
+    const input = {
+      ip,
+      hostname,
+      aliases: parseAliases(aliases),
+      comment,
+      tag: tag === NO_BLOCK ? null : tag.slice("block:".length),
+    };
+    setBusy(true);
+    try {
+      if (entry) await hostsUpdateEntry(entry.id, input);
+      else await hostsAddEntry(input);
+      onClose();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <form
+          className="contents"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!busy) void submit();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>{entry ? "Sửa entry" : "Entry mới"}</DialogTitle>
+            <DialogDescription>Không ghi gì vào /etc/hosts cho đến khi bạn nhấn Áp dụng.</DialogDescription>
+          </DialogHeader>
+
+          <Field id={ids.ip} label="Địa chỉ IP">
+            <Input
+              id={ids.ip}
+              value={ip}
+              onChange={(e) => setIp(e.target.value)}
+              className="font-mono"
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              data-testid="entry-ip"
+            />
+            <div className="flex gap-1.5">
+              {QUICK_IPS.map((quick) => (
+                <Button
+                  key={quick}
+                  type="button"
+                  size="xs"
+                  variant="outline"
+                  className={cn("font-mono", ip.trim() === quick && "border-ring bg-accent")}
+                  aria-pressed={ip.trim() === quick}
+                  onClick={() => setIp(quick)}
+                >
+                  {quick}
+                </Button>
+              ))}
+            </div>
+          </Field>
+
+          <Field id={ids.hostname} label="Hostname" error={hostnameError}>
+            <Input
+              id={ids.hostname}
+              value={hostname}
+              onChange={(e) => {
+                setHostname(e.target.value);
+                setHostnameError(null);
+              }}
+              className="font-mono"
+              placeholder="api.local"
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              autoFocus
+              aria-invalid={hostnameError !== null}
+              data-testid="entry-hostname"
+            />
+          </Field>
+
+          <Field id={ids.aliases} label="Alias" hint="Không bắt buộc. Cách nhau bằng dấu cách.">
+            <Input
+              id={ids.aliases}
+              value={aliases}
+              onChange={(e) => setAliases(e.target.value)}
+              className="font-mono"
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+            />
+          </Field>
+
+          <Field id={ids.comment} label="Ghi chú">
+            <Input id={ids.comment} value={comment} onChange={(e) => setComment(e.target.value)} />
+          </Field>
+
+          <Field id={ids.block} label="Block">
+            <Select value={tag} onValueChange={setTag}>
+              <SelectTrigger id={ids.block} className="w-full" data-testid="entry-block">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_BLOCK}>Không thuộc block</SelectItem>
+                {blocks.map((name) => (
+                  <SelectItem key={name} value={blockValue(name)}>
+                    {name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+
+          {error && <p className="animate-fade-in break-words text-destructive">{error}</p>}
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              Huỷ
+            </Button>
+            <Button type="submit" disabled={busy} data-testid="entry-submit">
+              {entry ? "Lưu" : "Thêm entry"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Field({
+  id,
+  label,
+  hint,
+  error,
+  children,
+}: {
+  id: string;
+  label: string;
+  hint?: string;
+  error?: string | null;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <label htmlFor={id} className="text-muted-foreground">
+        {label}
+      </label>
+      {children}
+      {error ? (
+        <p className="animate-fade-in text-destructive">{error}</p>
+      ) : (
+        hint && <p className="text-xs text-muted-foreground">{hint}</p>
+      )}
+    </div>
+  );
+}
