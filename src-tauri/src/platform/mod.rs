@@ -6,7 +6,9 @@ use std::sync::Arc;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]
-pub use macos::{MacPrivilegedRunner as SystemRunner, process_path, resolve_host};
+pub use macos::{
+    MacPrivilegedRunner as SystemRunner, process_identity, process_path, resolve_host,
+};
 
 /// The hosts file every resolver on the system reads.
 #[cfg(unix)]
@@ -48,15 +50,31 @@ impl RunOutcome {
 /// Runs a shell script as root, asking for the administrator password when the
 /// cached rights have expired.
 pub trait PrivilegedRunner: Send + Sync {
-    fn run(&self, script: &str) -> RunOutcome;
+    /// Runs `script` with nothing on its standard input.
+    fn run(&self, script: &str) -> RunOutcome {
+        self.run_with_input(script, &[])
+    }
+
+    /// Runs `script` with `input` on its standard input, followed by end of
+    /// file, so data never has to pass through a file or the command line.
+    fn run_with_input(&self, script: &str, input: &[u8]) -> RunOutcome;
 
     /// Forgets cached rights, so the next run asks again.
     fn release(&self) {}
 }
 
 /// The one runner the app shares, so a single password prompt covers hosts
-/// writes, backups and stopping processes of other users.
+/// writes and backups.
 pub type SharedRunner = Arc<dyn PrivilegedRunner>;
+
+/// Tells one process apart from a later one that reuses its pid: a pid alone
+/// can name a different program by the time a signal is sent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProcessIdentity {
+    pub uid: u32,
+    /// Start time, in seconds and microseconds since the Unix epoch.
+    pub started: (u64, u64),
+}
 
 /// How writing the hosts file ended, as the hosts model sees it.
 #[derive(Debug, Clone, PartialEq, Eq)]

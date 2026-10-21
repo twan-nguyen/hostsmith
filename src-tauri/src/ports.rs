@@ -5,16 +5,18 @@
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
+use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::sync::{Mutex, MutexGuard};
-use std::time::Duration;
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::platform::{self, PrivilegedRunner, RunOutcome, SharedRunner};
+use crate::platform::{self, ProcessIdentity};
 use crate::toast::{Toast, ToastKind};
 
 const EVENT: &str = "ports-changed";
@@ -50,6 +52,11 @@ const SYSTEM_COMMANDS: [&str; 12] = [
 /// How long a process gets to exit after the signal before it counts as
 /// still running.
 const SETTLE: Duration = Duration::from_millis(1200);
+/// How long each tool may take before it is killed, so a stuck `lsof` or a
+/// Docker daemon that does not answer never leaves the pane scanning forever.
+const LSOF_LIMIT: Duration = Duration::from_secs(5);
+const DOCKER_PS_LIMIT: Duration = Duration::from_secs(5);
+const DOCKER_STOP_LIMIT: Duration = Duration::from_secs(15);
 
 // MARK: - Model
 
@@ -87,6 +94,10 @@ pub struct ListeningPort {
     pub is_system: bool,
     /// An unknown process on a dev port: the one case worth a banner.
     pub needs_attention: bool,
+    /// Who ran the pid and since when at scan time, checked again before any
+    /// signal so a pid that now names another process is left alone.
+    #[serde(skip)]
+    pub identity: Option<ProcessIdentity>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -105,7 +116,6 @@ pub struct PortsSnapshot {
 pub enum KillOutcome {
     Freed,
     StillRunning,
-    Cancelled,
     Failed,
 }
 
@@ -348,20 +358,31 @@ fn needs_attention(owner: &Owner, is_system: bool, port: u16) -> bool {
     *owner == Owner::Unknown && !is_system && (1024..=49151).contains(&port)
 }
 
-fn assemble(
+/// What the scan learns about each process beyond the listing.
+struct Lookups<E, I> {
+    executable: E,
+    identity: I,
+}
+
+fn assemble<E, I>(
     records: Vec<Record>,
     cwds: &HashMap<i32, String>,
-    executable: impl Fn(i32) -> Option<String>,
+    lookups: Lookups<E, I>,
     repos: &[KnownRepo],
     containers: &HashMap<u16, String>,
-) -> Vec<ListeningPort> {
+) -> Vec<ListeningPort>
+where
+    E: Fn(i32) -> Option<String>,
+    I: Fn(i32) -> Option<ProcessIdentity>,
+{
     let mut ports: Vec<ListeningPort> = records
         .into_iter()
         .map(|record| {
             let cwd = cwds.get(&record.pid).cloned();
             let owner = owner(&record, cwd.as_deref(), repos, containers);
-            let is_system = is_system(&record.command, executable(record.pid).as_deref());
+            let is_system = is_system(&record.command, (lookups.executable)(record.pid).as_deref());
             ListeningPort {
+                identity: (lookups.identity)(record.pid),
                 id: format!("{}-{}", record.port, record.pid),
                 needs_attention: needs_attention(&owner, is_system, record.port),
                 port: record.port,
@@ -380,22 +401,78 @@ fn assemble(
 
 // MARK: - System
 
+/// What a tool printed, and how it exited.
+struct Ran {
+    status: ExitStatus,
+    stdout: String,
+    stderr: String,
+}
+
+/// Runs a tool and collects its output, killing it once `limit` has passed.
+/// The output is read on threads while the tool runs, so a long listing can
+/// never fill the pipe and stall it.
+fn run_tool(program: &Path, args: &[&str], limit: Duration) -> std::io::Result<Ran> {
+    let mut child = Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let stdout = child.stdout.take().map(drain);
+    let stderr = child.stderr.take().map(drain);
+    let deadline = Instant::now() + limit;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
+            waited => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(match waited {
+                    Err(error) => error,
+                    _ => std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        format!("không phản hồi sau {} giây", limit.as_secs()),
+                    ),
+                });
+            }
+        }
+    };
+    Ok(Ran {
+        status,
+        stdout: collected(stdout),
+        stderr: collected(stderr),
+    })
+}
+
+fn drain(mut pipe: impl Read + Send + 'static) -> JoinHandle<Vec<u8>> {
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        // A read error keeps what arrived before it, as `output()` would.
+        let _ = pipe.read_to_end(&mut bytes);
+        bytes
+    })
+}
+
+fn collected(reader: Option<JoinHandle<Vec<u8>>>) -> String {
+    let bytes = reader
+        .and_then(|reader| reader.join().ok())
+        .unwrap_or_default();
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
 /// A tool's standard output. The exit status is ignored on purpose: `lsof`
 /// exits 1 when nothing listens or when one of the pids cannot be inspected,
 /// and still prints everything it could read.
-fn output(program: &Path, args: &[&str]) -> std::io::Result<String> {
-    let out = Command::new(program)
-        .args(args)
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()?;
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+fn output(program: &Path, args: &[&str], limit: Duration) -> std::io::Result<String> {
+    run_tool(program, args, limit).map(|ran| ran.stdout)
 }
 
 fn scan_system(repos: &[KnownRepo]) -> Result<Vec<ListeningPort>, String> {
     let listing = output(
         Path::new(LSOF),
         &["-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pcuLn"],
+        LSOF_LIMIT,
     )
     .map_err(|e| format!("Không chạy được lsof: {e}"))?;
     let records = parse_listing(&listing);
@@ -409,6 +486,7 @@ fn scan_system(repos: &[KnownRepo]) -> Result<Vec<ListeningPort>, String> {
         output(
             Path::new(LSOF),
             &["-a", "-d", "cwd", "-Fpn", "-p", &pids.join(",")],
+            LSOF_LIMIT,
         )
         .map(|text| parse_cwds(&text))
         .unwrap_or_default()
@@ -416,16 +494,21 @@ fn scan_system(repos: &[KnownRepo]) -> Result<Vec<ListeningPort>, String> {
     // Docker is optional: without it, or with the daemon stopped, containers
     // just stay unnamed.
     let containers = docker()
-        .and_then(|docker| output(&docker, &["ps", "--format", "{{.Names}}\t{{.Ports}}"]).ok())
+        .and_then(|docker| {
+            output(
+                &docker,
+                &["ps", "--format", "{{.Names}}\t{{.Ports}}"],
+                DOCKER_PS_LIMIT,
+            )
+            .ok()
+        })
         .map(|text| parse_containers(&text))
         .unwrap_or_default();
-    Ok(assemble(
-        records,
-        &cwds,
-        platform::process_path,
-        repos,
-        &containers,
-    ))
+    let lookups = Lookups {
+        executable: platform::process_path,
+        identity: platform::process_identity,
+    };
+    Ok(assemble(records, &cwds, lookups, repos, &containers))
 }
 
 fn docker() -> Option<PathBuf> {
@@ -449,46 +532,79 @@ fn find_executable(name: &str, path: Option<&OsStr>, fallbacks: &[&str]) -> Opti
         })
 }
 
+/// Whether a pid still names the process the scan saw.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Presence {
+    Same,
+    /// The pid now belongs to another process, or to one this user may not
+    /// signal.
+    Replaced,
+    Gone,
+}
+
+/// Compares the identity recorded at scan time with the one the pid has now.
+/// A process that cannot be identified counts as replaced while it exists,
+/// since this user's own processes can always be inspected.
+fn presence(
+    recorded: Option<ProcessIdentity>,
+    current: Option<ProcessIdentity>,
+    exists: bool,
+) -> Presence {
+    match current {
+        Some(current) if recorded == Some(current) => Presence::Same,
+        Some(_) => Presence::Replaced,
+        None if exists => Presence::Replaced,
+        None => Presence::Gone,
+    }
+}
+
+fn presence_of(target: &ListeningPort) -> Presence {
+    presence(
+        target.identity,
+        platform::process_identity(target.pid),
+        exists(target.pid),
+    )
+}
+
+/// EPERM means the process exists but belongs to someone else.
+fn exists(pid: i32) -> bool {
+    // SAFETY: signal 0 only checks for existence and permission.
+    let probed = unsafe { libc::kill(pid, 0) };
+    probed == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
 /// How sending the signal went, before checking whether the process left.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Delivery {
     Sent,
-    Cancelled,
-    Denied,
+    /// The process had already exited, which is what the user asked for.
+    Gone,
+    /// The pid no longer names the process the scan listed.
+    Changed,
     Failed,
 }
 
-fn kill_script(pid: i32, force: bool) -> String {
-    format!("kill -{} {pid}", if force { "KILL" } else { "TERM" })
-}
-
-/// Signals in-process first; a process of another user (EPERM) is signalled
-/// as root through the shared runner, under the same cached rights.
-fn deliver(pid: i32, force: bool, runner: &dyn PrivilegedRunner) -> Delivery {
+/// Signals the listed process as this user, never as root. `lsof` without
+/// root lists only this user's processes, so a pid this user may not signal
+/// has been reused by another program since the scan, and is left alone.
+/// The identity is checked right before the signal; the gap between the two
+/// is a few microseconds, far shorter than a scan's age.
+fn deliver(target: &ListeningPort, force: bool) -> Delivery {
+    match presence_of(target) {
+        Presence::Same => {}
+        Presence::Replaced => return Delivery::Changed,
+        Presence::Gone => return Delivery::Gone,
+    }
     let signal = if force { libc::SIGKILL } else { libc::SIGTERM };
     // SAFETY: plain syscall; `pid` is positive, so it never addresses a group.
-    if unsafe { libc::kill(pid, signal) } == 0 {
+    if unsafe { libc::kill(target.pid, signal) } == 0 {
         return Delivery::Sent;
     }
     match std::io::Error::last_os_error().raw_os_error() {
-        // Gone already, which is what the user asked for.
-        Some(libc::ESRCH) => Delivery::Sent,
-        Some(libc::EPERM) => match runner.run(&kill_script(pid, force)) {
-            RunOutcome::Ok => Delivery::Sent,
-            RunOutcome::Cancelled => Delivery::Cancelled,
-            RunOutcome::Denied(_) => Delivery::Denied,
-            RunOutcome::Failed { .. } => Delivery::Failed,
-        },
+        Some(libc::ESRCH) => Delivery::Gone,
+        Some(libc::EPERM) => Delivery::Changed,
         _ => Delivery::Failed,
     }
-}
-
-/// EPERM means the process exists but belongs to someone else, so it counts
-/// as alive.
-fn is_alive(pid: i32) -> bool {
-    // SAFETY: signal 0 only checks for existence and permission.
-    let probed = unsafe { libc::kill(pid, 0) };
-    probed == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 /// The outcome and the toast for a stop, once it is known whether the process
@@ -498,42 +614,46 @@ fn conclude(
     force: bool,
     delivery: Delivery,
     alive: bool,
-) -> (KillOutcome, Option<(String, ToastKind)>) {
+) -> (KillOutcome, (String, ToastKind)) {
     let process = &target.process;
+    let freed = (
+        KillOutcome::Freed,
+        (
+            format!("Đã giải phóng cổng {}", target.port),
+            ToastKind::Success,
+        ),
+    );
     match delivery {
-        Delivery::Cancelled => (KillOutcome::Cancelled, None),
-        Delivery::Denied => (
+        Delivery::Gone => freed,
+        Delivery::Changed => (
             KillOutcome::Failed,
-            Some((
-                format!("Không dừng được {process} vì quyền quản trị bị từ chối"),
-                ToastKind::Error,
-            )),
+            (
+                format!(
+                    "Tiến trình {process} (pid {}) đã thay đổi từ lần quét trước. Hosven đã quét lại.",
+                    target.pid
+                ),
+                ToastKind::Info,
+            ),
         ),
         Delivery::Failed => (
             KillOutcome::Failed,
-            Some((
+            (
                 format!("Không gửi được tín hiệu tới {process} (pid {})", target.pid),
                 ToastKind::Error,
-            )),
+            ),
         ),
         Delivery::Sent if alive => (
             KillOutcome::StillRunning,
-            Some((
+            (
                 format!(
                     "{process} (pid {}) vẫn chạy sau {}",
                     target.pid,
                     if force { "SIGKILL" } else { "SIGTERM" }
                 ),
                 ToastKind::Info,
-            )),
+            ),
         ),
-        Delivery::Sent => (
-            KillOutcome::Freed,
-            Some((
-                format!("Đã giải phóng cổng {}", target.port),
-                ToastKind::Success,
-            )),
-        ),
+        Delivery::Sent => freed,
     }
 }
 
@@ -545,17 +665,14 @@ enum StopError {
 
 fn stop_container(name: &str) -> Result<(), StopError> {
     let docker = docker().ok_or(StopError::NoDocker)?;
-    let out = Command::new(docker)
-        .args(["stop", name])
-        .stdin(Stdio::null())
-        .output()
+    let ran = run_tool(&docker, &["stop", name], DOCKER_STOP_LIMIT)
         .map_err(|e| StopError::Failed(e.to_string()))?;
-    if out.status.success() {
+    if ran.status.success() {
         Ok(())
     } else {
-        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        let stderr = ran.stderr.trim().to_string();
         Err(StopError::Failed(if stderr.is_empty() {
-            format!("docker thoát với mã {}", out.status.code().unwrap_or(-1))
+            format!("docker thoát với mã {}", ran.status.code().unwrap_or(-1))
         } else {
             stderr
         }))
@@ -591,7 +708,8 @@ pub async fn ports_scan(app: AppHandle, repos: Vec<KnownRepo>) -> PortsSnapshot 
 }
 
 /// Sends SIGTERM, or SIGKILL when `force`, waits for the process to leave,
-/// then rescans.
+/// then rescans. Either signal goes only to the process the last scan listed
+/// under that pid.
 #[tauri::command]
 pub async fn ports_kill(
     app: AppHandle,
@@ -608,26 +726,19 @@ pub async fn ports_kill(
         .ok_or_else(|| {
             format!("Không thấy pid {pid} trong lần quét gần nhất. Quét lại rồi thử.")
         })?;
-    let runner = app
-        .try_state::<SharedRunner>()
-        .ok_or("Hosven chưa sẵn sàng dừng tiến trình")?
-        .inner()
-        .clone();
 
-    let delivery =
-        tauri::async_runtime::spawn_blocking(move || deliver(pid, force, runner.as_ref()))
-            .await
-            .unwrap_or(Delivery::Failed);
+    let signalled = target.clone();
+    let delivery = tauri::async_runtime::spawn_blocking(move || deliver(&signalled, force))
+        .await
+        .unwrap_or(Delivery::Failed);
     let alive = if delivery == Delivery::Sent {
         tokio::time::sleep(SETTLE).await;
-        is_alive(pid)
+        presence_of(&target) == Presence::Same
     } else {
         false
     };
-    let (outcome, toast) = conclude(&target, force, delivery, alive);
-    if let Some((message, kind)) = toast {
-        mutate(&app, &state, |p| p.show_toast(message, kind));
-    }
+    let (outcome, (message, kind)) = conclude(&target, force, delivery, alive);
+    mutate(&app, &state, |p| p.show_toast(message, kind));
     rescan(&app, repos).await;
     Ok(outcome)
 }
@@ -699,6 +810,7 @@ mod tests {
             owner: Owner::Unknown,
             is_system: false,
             needs_attention: true,
+            identity: None,
         }
     }
 
@@ -815,8 +927,17 @@ mod tests {
         let cwds = parse_cwds(CWDS);
         let containers = parse_containers(DOCKER_PS);
         let repos = [repo("web", "/Users/dev/code/shop/web")];
-        let executable = |pid: i32| (pid == 628).then(|| "/System/Library/ControlCenter".into());
-        let ports = assemble(records, &cwds, executable, &repos, &containers);
+        let identity = |pid: i32| {
+            Some(ProcessIdentity {
+                uid: 501,
+                started: (pid as u64, 0),
+            })
+        };
+        let lookups = Lookups {
+            executable: |pid: i32| (pid == 628).then(|| "/System/Library/ControlCenter".into()),
+            identity,
+        };
+        let ports = assemble(records, &cwds, lookups, &repos, &containers);
 
         let ids: Vec<&str> = ports.iter().map(|p| p.id.as_str()).collect();
         assert_eq!(
@@ -836,6 +957,10 @@ mod tests {
         assert_eq!(ports[2].owner, Owner::Container(Some("shop-db".into())));
         assert!(ports[3].needs_attention);
         assert_eq!(ports[5].cwd.as_deref(), Some("/Users/dev/code/shop-admin"));
+        assert_eq!(ports[0].identity, identity(807));
+        // The identity stays on this side; the window never sees it.
+        let json = serde_json::to_value(&ports[0]).unwrap();
+        assert!(json.get("identity").is_none());
     }
 
     #[test]
@@ -864,58 +989,136 @@ mod tests {
     }
 
     #[test]
-    fn builds_kill_scripts_from_numbers_only() {
-        assert_eq!(kill_script(4242, false), "kill -TERM 4242");
-        assert_eq!(kill_script(4242, true), "kill -KILL 4242");
-    }
-
-    #[test]
     fn concludes_a_stop_with_a_counted_fact() {
         let target = listed("node", 807, 3000);
         let message = |delivery, alive, force| {
-            let (outcome, toast) = conclude(&target, force, delivery, alive);
-            (outcome, toast.map(|(m, _)| m))
+            let (outcome, (message, _)) = conclude(&target, force, delivery, alive);
+            (outcome, message)
         };
         assert_eq!(
             message(Delivery::Sent, false, false),
-            (KillOutcome::Freed, Some("Đã giải phóng cổng 3000".into()))
+            (KillOutcome::Freed, "Đã giải phóng cổng 3000".into())
+        );
+        assert_eq!(
+            message(Delivery::Gone, false, true),
+            (KillOutcome::Freed, "Đã giải phóng cổng 3000".into())
         );
         assert_eq!(
             message(Delivery::Sent, true, false),
             (
                 KillOutcome::StillRunning,
-                Some("node (pid 807) vẫn chạy sau SIGTERM".into())
+                "node (pid 807) vẫn chạy sau SIGTERM".into()
             )
         );
         assert_eq!(
-            message(Delivery::Sent, true, true).1.as_deref(),
-            Some("node (pid 807) vẫn chạy sau SIGKILL")
+            message(Delivery::Sent, true, true).1,
+            "node (pid 807) vẫn chạy sau SIGKILL"
         );
         assert_eq!(
-            message(Delivery::Denied, false, false),
+            message(Delivery::Changed, false, false),
             (
                 KillOutcome::Failed,
-                Some("Không dừng được node vì quyền quản trị bị từ chối".into())
+                "Tiến trình node (pid 807) đã thay đổi từ lần quét trước. Hosven đã quét lại."
+                    .into()
             )
         );
         assert_eq!(
             message(Delivery::Failed, false, false),
             (
                 KillOutcome::Failed,
-                Some("Không gửi được tín hiệu tới node (pid 807)".into())
+                "Không gửi được tín hiệu tới node (pid 807)".into()
             )
-        );
-        assert_eq!(
-            message(Delivery::Cancelled, false, false),
-            (KillOutcome::Cancelled, None)
         );
     }
 
     #[test]
-    fn a_process_that_exists_is_alive() {
-        assert!(is_alive(std::process::id() as i32));
-        // launchd belongs to root: EPERM still means it exists.
-        assert!(is_alive(1));
+    fn a_pid_counts_as_the_listed_process_only_with_the_same_identity() {
+        let at = |second| ProcessIdentity {
+            uid: 501,
+            started: (second, 250),
+        };
+        assert_eq!(presence(Some(at(10)), Some(at(10)), true), Presence::Same);
+        // Same pid, started later: another program reused it.
+        assert_eq!(
+            presence(Some(at(10)), Some(at(11)), true),
+            Presence::Replaced
+        );
+        let root = ProcessIdentity { uid: 0, ..at(10) };
+        assert_eq!(presence(Some(at(10)), Some(root), true), Presence::Replaced);
+        // Exists but cannot be inspected: not this user's process.
+        assert_eq!(presence(Some(at(10)), None, true), Presence::Replaced);
+        assert_eq!(presence(Some(at(10)), None, false), Presence::Gone);
+        // Without an identity from the scan nothing can be confirmed.
+        assert_eq!(presence(None, Some(at(10)), true), Presence::Replaced);
+    }
+
+    #[test]
+    fn signals_only_the_process_the_scan_saw() {
+        let mut child = Command::new("/bin/sleep").arg("30").spawn().unwrap();
+        let pid = child.id() as i32;
+        let mut target = listed("sleep", pid, 3000);
+        target.identity = platform::process_identity(pid);
+        assert!(target.identity.is_some());
+
+        // A pid now running something else is left alone.
+        let mut stale = target.clone();
+        stale.identity = Some(ProcessIdentity {
+            uid: 501,
+            started: (1, 0),
+        });
+        assert_eq!(deliver(&stale, true), Delivery::Changed);
+        assert_eq!(presence_of(&target), Presence::Same);
+
+        assert_eq!(deliver(&target, false), Delivery::Sent);
+        child.wait().unwrap();
+        assert_eq!(presence_of(&target), Presence::Gone);
+        assert_eq!(deliver(&target, true), Delivery::Gone);
+    }
+
+    #[test]
+    fn launchd_is_never_this_users_process() {
+        let mut launchd = listed("launchd", 1, 3000);
+        launchd.identity = Some(ProcessIdentity {
+            uid: 0,
+            started: (0, 0),
+        });
+        assert_eq!(deliver(&launchd, true), Delivery::Changed);
+    }
+
+    #[test]
+    fn collects_tool_output_and_status() {
+        let ran = run_tool(
+            Path::new("/bin/sh"),
+            &["-c", "echo out; echo err >&2; exit 3"],
+            Duration::from_secs(5),
+        )
+        .unwrap();
+        assert_eq!(ran.stdout, "out\n");
+        assert_eq!(ran.stderr, "err\n");
+        assert_eq!(ran.status.code(), Some(3));
+
+        // More than a pipe holds, read while the tool still writes.
+        let big = output(
+            Path::new("/bin/sh"),
+            &[
+                "-c",
+                "i=0; while [ $i -lt 20000 ]; do echo 0123456789; i=$((i+1)); done",
+            ],
+            Duration::from_secs(10),
+        )
+        .unwrap();
+        assert_eq!(big.len(), 220_000);
+    }
+
+    #[test]
+    fn kills_a_tool_that_does_not_finish_in_time() {
+        let started = Instant::now();
+        let error = run_tool(Path::new("/bin/sleep"), &["30"], Duration::from_millis(300))
+            .err()
+            .expect("timed out");
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+        assert!(error.to_string().starts_with("không phản hồi sau"));
     }
 
     #[test]
