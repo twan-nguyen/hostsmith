@@ -22,7 +22,7 @@ use crate::util::lock;
 use crate::watcher::FileWatcher;
 use model::ToastKind;
 pub use state::{EntryInput, Hosts, Outcome, Snapshot, Step};
-pub use switch::{ActiveState, SwitchPolicy, SwitchPreview};
+pub use switch::{ActiveState, SwitchPolicy};
 
 const EVENT: &str = "hosts-changed";
 
@@ -53,7 +53,7 @@ pub struct HostsWatch {
     _watcher: FileWatcher,
 }
 
-/// Flags edits other tools make to the hosts file. Hosven's own writes leave
+/// Flags edits other tools make to the hosts file. HostSmith's own writes leave
 /// the content it wrote, which the model recognises and ignores.
 pub fn watch(app: &AppHandle) -> Result<HostsWatch, String> {
     let handle = app.clone();
@@ -266,11 +266,6 @@ pub async fn hosts_confirm_pending_switch(app: AppHandle) -> Outcome {
 #[tauri::command]
 pub fn hosts_cancel_pending_switch(app: AppHandle, state: State<'_, HostsState>) {
     mutate(&app, &state, Hosts::cancel_pending_switch);
-}
-
-#[tauri::command]
-pub fn hosts_switch_preview(state: State<'_, HostsState>, target: Option<Uuid>) -> SwitchPreview {
-    state.lock().switch_preview(target)
 }
 
 /// Copies the hosts file beside itself as root. Refused while a write is out,

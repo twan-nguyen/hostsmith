@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import { profileStats } from "@/lib/hosts-view";
-import type { HostsSnapshot, ListeningPort, Outcome, PortsSnapshot, Profile } from "@/lib/hosven";
+import type { HostsSnapshot, ListeningPort, Outcome, PortsSnapshot, Profile } from "@/lib/hostsmith";
 
 /** What the menu bar panel shows; the panel never scrolls, so lists are capped. */
 export const MAX_TOGGLES = 8;
@@ -77,5 +77,5 @@ export function outcomeMessage(outcome: Outcome): string | null {
 }
 
 function pendingMessage(count: number): string {
-  return `Có ${count} thay đổi chưa áp dụng trong Hosven. Mở Hosven để áp dụng hoặc huỷ trước.`;
+  return `Có ${count} thay đổi chưa áp dụng trong HostSmith. Mở HostSmith để áp dụng hoặc huỷ trước.`;
 }

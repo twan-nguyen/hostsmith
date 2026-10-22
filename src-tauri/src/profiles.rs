@@ -209,12 +209,12 @@ impl ProfileStore for FileProfileStore {
                     Some(moved) => Loaded {
                         profiles: Vec::new(),
                         notice: Some(format!(
-                            "Không đọc được profiles.json, Hosven đã chuyển nó sang {}",
+                            "Không đọc được profiles.json, HostSmith đã chuyển nó sang {}",
                             moved.file_name().unwrap_or_default().to_string_lossy()
                         )),
                     },
                     None => self.unreadable(
-                        "Không đọc được profiles.json. Hosven sẽ không ghi đè nó.".into(),
+                        "Không đọc được profiles.json. HostSmith sẽ không ghi đè nó.".into(),
                     ),
                 },
             },
@@ -229,14 +229,14 @@ impl ProfileStore for FileProfileStore {
                 }
             }
             Err(error) => self.unreadable(format!(
-                "Không đọc được profiles.json: {error}. Hosven sẽ không ghi đè nó."
+                "Không đọc được profiles.json: {error}. HostSmith sẽ không ghi đè nó."
             )),
         }
     }
 
     fn save(&self, profiles: &[Profile]) -> Result<(), String> {
         if self.read_only.load(Ordering::SeqCst) {
-            return Err("file hiện có không đọc được, Hosven không ghi đè nó".into());
+            return Err("file hiện có không đọc được, HostSmith không ghi đè nó".into());
         }
         let disk: Vec<DiskProfile> = profiles.iter().map(DiskProfile::from).collect();
         config::write_json_atomic(&self.path, &disk)
@@ -279,7 +279,7 @@ mod tests {
     use super::*;
 
     fn temp_store() -> (FileProfileStore, PathBuf) {
-        let dir = std::env::temp_dir().join(format!("hosven-profiles-{}", Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("hostsmith-profiles-{}", Uuid::new_v4()));
         let path = dir.join("profiles.json");
         (FileProfileStore::new(path.clone(), None), path)
     }

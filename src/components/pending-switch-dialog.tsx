@@ -10,7 +10,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { hostsCancelPendingSwitch, hostsConfirmPendingSwitch } from "@/lib/hosven";
+import { hostsCancelPendingSwitch, hostsConfirmPendingSwitch } from "@/lib/hostsmith";
 import { useStore } from "@/store";
 
 /**

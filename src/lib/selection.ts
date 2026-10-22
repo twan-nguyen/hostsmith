@@ -6,8 +6,6 @@ export type Selection =
   | { kind: "systemHosts" }
   | { kind: "profile"; id: string }
   | { kind: "hostsTag"; name: string }
-  | { kind: "repo"; id: string }
-  | { kind: "envFile"; repo: string; path: string }
   | { kind: "ports" }
   | { kind: "settings" };
 
@@ -19,16 +17,16 @@ export function formatSelection(selection: Selection): string {
       return `profile:${selection.id}`;
     case "hostsTag":
       return `hostsTag:${selection.name}`;
-    case "repo":
-      return `repo:${selection.id}`;
-    case "envFile":
-      return `envFile:${selection.repo}:${selection.path}`;
     default:
       return selection.kind;
   }
 }
 
-/** Reads a remembered selection; anything unreadable falls back to the hosts file. */
+/**
+ * Reads a remembered selection; anything unreadable falls back to the hosts
+ * file. That includes the `repo:` and `envFile:` panes of the removed .env
+ * editor, which an older build may have remembered.
+ */
 export function parseSelection(raw: string | null | undefined): Selection {
   if (!raw) return DEFAULT_SELECTION;
   if (raw === "systemHosts" || raw === "ports" || raw === "settings") return { kind: raw };
@@ -42,13 +40,6 @@ export function parseSelection(raw: string | null | undefined): Selection {
       return rest ? { kind, id: rest } : DEFAULT_SELECTION;
     case "hostsTag":
       return rest ? { kind, name: rest } : DEFAULT_SELECTION;
-    case "repo":
-      return rest ? { kind, id: rest } : DEFAULT_SELECTION;
-    case "envFile": {
-      const split = rest.indexOf(":");
-      if (split <= 0) return DEFAULT_SELECTION;
-      return { kind, repo: rest.slice(0, split), path: rest.slice(split + 1) };
-    }
     default:
       return DEFAULT_SELECTION;
   }

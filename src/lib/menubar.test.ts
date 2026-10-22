@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { HostEntry, HostsSnapshot, ListeningPort, Profile } from "./hosven";
+import type { HostEntry, HostsSnapshot, ListeningPort, Profile } from "./hostsmith";
 import {
   activeTitle,
   blockRows,
@@ -119,7 +119,7 @@ describe("menu bar panel", () => {
 
   it("explains a switch that did not write", () => {
     expect(outcomeMessage({ kind: "refused", value: 2 })).toBe(
-      "Có 2 thay đổi chưa áp dụng trong Hosven. Mở Hosven để áp dụng hoặc huỷ trước.",
+      "Có 2 thay đổi chưa áp dụng trong HostSmith. Mở HostSmith để áp dụng hoặc huỷ trước.",
     );
     expect(outcomeMessage({ kind: "failed", value: "denied" })).toBe("Không ghi được /etc/hosts: denied");
     expect(outcomeMessage({ kind: "written" })).toBeNull();

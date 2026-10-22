@@ -1,4 +1,4 @@
-import { Cable, CircleOff, Folder, Layers, Network, Search } from "lucide-react";
+import { Cable, CircleOff, Layers, Network, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -12,7 +12,7 @@ import {
   CommandShortcut,
 } from "@/components/ui/command";
 import { profileStats } from "@/lib/hosts-view";
-import { hostsSwitchEnvironment } from "@/lib/hosven";
+import { hostsSwitchEnvironment } from "@/lib/hostsmith";
 import { type PaletteAction, type PaletteCommand, type PaletteIcon, paletteSections } from "@/lib/palette";
 import { PROFILE_COLORS } from "@/lib/profile-color";
 import { cn } from "@/lib/utils";
@@ -21,7 +21,6 @@ import { useStore } from "@/store";
 const ICONS: Record<PaletteIcon, React.ReactNode> = {
   network: <Network />,
   ports: <Cable />,
-  folder: <Folder />,
   environment: <Layers />,
   off: <CircleOff />,
   search: <Search />,
@@ -31,7 +30,6 @@ export function CommandPalette() {
   const paletteOpen = useStore((s) => s.paletteOpen);
   const setPaletteOpen = useStore((s) => s.setPaletteOpen);
   const hosts = useStore((s) => s.hosts);
-  const env = useStore((s) => s.env);
   const [query, setQuery] = useState("");
 
   useEffect(() => {
@@ -61,9 +59,8 @@ export function CommandPalette() {
         active: hosts?.active.kind === "active" && active,
       })),
       anyActive: hosts?.active.kind !== "none",
-      repos: env?.repos.map((r) => ({ id: r.id, name: r.name, path: r.path })) ?? [],
     });
-  }, [query, hosts, env]);
+  }, [query, hosts]);
 
   const run = (action: PaletteAction) => {
     setPaletteOpen(false);
@@ -83,19 +80,13 @@ export function CommandPalette() {
         state.select({ kind: "systemHosts" });
         state.setHostsQuery(action.query);
         break;
-      case "searchEnv": {
-        const repo = state.env?.selectedRepo ?? state.env?.repos[0]?.id;
-        if (repo) state.select({ kind: "repo", id: repo });
-        state.setEnvQuery(action.query);
-        break;
-      }
     }
   };
 
   return (
     <CommandDialog open={paletteOpen} onOpenChange={setPaletteOpen}>
       <Command shouldFilter={false} loop>
-        <CommandInput value={query} onValueChange={setQuery} placeholder="Tìm host, repo hoặc lệnh" />
+        <CommandInput value={query} onValueChange={setQuery} placeholder="Tìm host hoặc lệnh" />
         <CommandList>
           <CommandEmpty>Không có kết quả</CommandEmpty>
           {sections.map((section) => (

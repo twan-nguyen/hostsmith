@@ -1,4 +1,4 @@
-import type { ProfileColor } from "@/lib/hosven";
+import type { ProfileColor } from "@/lib/hostsmith";
 
 /**
  * Three environment hues and one neutral. `green` and `purple` stay readable

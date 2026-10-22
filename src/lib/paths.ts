@@ -6,8 +6,3 @@ export function abbreviateHome(path: string, home: string | null): string {
   if (path === base) return "~";
   return path.startsWith(`${base}/`) ? `~${path.slice(base.length)}` : path;
 }
-
-/** A folder joined with a path inside it. */
-export function joinPath(folder: string, relative: string): string {
-  return `${folder.replace(/\/+$/, "")}/${relative}`;
-}

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Banner } from "@/components/banner";
 import { Switch } from "@/components/ui/switch";
-import { type Outcome, hostsSwitchEnvironment, portsScan } from "@/lib/hosven";
+import { type Outcome, hostsSwitchEnvironment, portsScan } from "@/lib/hostsmith";
 import {
   MAX_PORTS,
   MAX_TOGGLES,
@@ -21,7 +21,6 @@ import {
   portTrailing,
   userPorts,
 } from "@/lib/menubar";
-import { knownRepos } from "@/lib/ports-view";
 import { PROFILE_COLORS } from "@/lib/profile-color";
 import { cn, errorMessage } from "@/lib/utils";
 import { useStore } from "@/store";
@@ -52,7 +51,7 @@ export function MenubarPanel() {
   useEffect(() => {
     const unlisten = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
       if (focused) {
-        void portsScan(knownRepos(useStore.getState().env)).catch(() => {});
+        void portsScan().catch(() => {});
       } else {
         setSwitcherOpen(false);
         setFailure(null);
@@ -192,7 +191,7 @@ export function MenubarPanel() {
           </div>
         ))}
         {blocks.length > shownBlocks.length && (
-          <Row title="Xem tất cả trong Hosven" accent onClick={() => void panelOpenMain()} />
+          <Row title="Xem tất cả trong HostSmith" accent onClick={() => void panelOpenMain()} />
         )}
 
         <Separator />
@@ -211,14 +210,14 @@ export function MenubarPanel() {
           />
         ))}
         {portList.length > shownPorts.length && (
-          <Row title="Xem tất cả trong Hosven" accent onClick={() => void panelOpenMain("ports")} />
+          <Row title="Xem tất cả trong HostSmith" accent onClick={() => void panelOpenMain("ports")} />
         )}
 
         <Separator />
 
-        <Row title="Mở Hosven" trailing="⌘O" onClick={() => void panelOpenMain()} />
+        <Row title="Mở HostSmith" trailing="⌘O" onClick={() => void panelOpenMain()} />
         <Row title="Cài đặt" trailing="⌘," onClick={() => void panelOpenMain("settings")} />
-        <Row title="Thoát Hosven" trailing="⌘Q" onClick={() => void panelQuit()} />
+        <Row title="Thoát HostSmith" trailing="⌘Q" onClick={() => void panelQuit()} />
       </div>
     </div>
   );

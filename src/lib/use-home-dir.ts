@@ -1,7 +1,7 @@
 import { homeDir } from "@tauri-apps/api/path";
 import { useEffect, useState } from "react";
 
-// Read once per window; the home folder does not move while Hosven runs.
+// Read once per window; the home folder does not move while HostSmith runs.
 let cached: string | null = null;
 let pending: Promise<string | null> | null = null;
 

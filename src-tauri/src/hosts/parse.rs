@@ -2,7 +2,7 @@
 //!
 //! The text is normalised on the way through: blank lines go, comment lines
 //! move to the top, and every entry is written `ip<TAB>hostname[ alias…][ # comment]`
-//! inside its `## [tag:Name]` block. Hosven compares against this normalised
+//! inside its `## [tag:Name]` block. HostSmith compares against this normalised
 //! form, so formatting differences on disk never count as changes.
 
 use std::sync::LazyLock;

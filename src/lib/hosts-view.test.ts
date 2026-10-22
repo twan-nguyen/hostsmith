@@ -1,15 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import type { Check, HostEntry, HostsSnapshot, Profile } from "./hosven";
+import type { Check, HostEntry, HostsSnapshot, Profile } from "./hostsmith";
 import {
-  activationSummary,
   blockChoices,
   blockMarker,
   draftFor,
   hostnameTaken,
-  hostsBanner,
   parseAliases,
-  profileBanner,
   profileStats,
   profileSubtitle,
   verificationSummary,
@@ -46,60 +43,6 @@ const miss = (hostname: string, resolvedIps: string[] = []): Check => ({
 
 const env: Profile = { id: "e1", name: "Staging", color: "amber", shortcutNumber: 2, isExclusive: true };
 const block: Profile = { id: "b1", name: "Docker", color: "purple", shortcutNumber: 3, isExclusive: false };
-
-describe("hostsBanner", () => {
-  it("ranks conflict over a load error over an outside change over verification", () => {
-    const all = snapshot({
-      active: { kind: "conflict", ids: ["a", "b"] },
-      loadError: "denied",
-      externalChange: true,
-      verification: { results: [ok] },
-    });
-    expect(hostsBanner(all)).toBe("conflict");
-    expect(hostsBanner({ ...all, active: { kind: "none" } })).toBe("loadError");
-    expect(hostsBanner({ ...all, active: { kind: "none" }, loadError: null })).toBe("externalChange");
-    expect(hostsBanner({ ...all, active: { kind: "none" }, loadError: null, externalChange: false })).toBe(
-      "verification",
-    );
-  });
-
-  it("hides a clean verification once new edits are pending, but keeps a mismatch", () => {
-    expect(hostsBanner(snapshot({ dirty: true, verification: { results: [ok] } }))).toBeNull();
-    expect(hostsBanner(snapshot({ dirty: true, verification: { results: [ok, miss("b.test")] } }))).toBe(
-      "verification",
-    );
-  });
-
-  it("shows nothing without a snapshot or a reason", () => {
-    expect(hostsBanner(null)).toBeNull();
-    expect(hostsBanner(snapshot())).toBeNull();
-  });
-});
-
-describe("profileBanner", () => {
-  const base = { hosts: snapshot(), profile: env, entryCount: 2, active: false };
-
-  it("puts a conflict before the activation summary", () => {
-    const conflict = snapshot({ active: { kind: "conflict", ids: ["e1", "e2"] }, dirty: true });
-    expect(profileBanner({ ...base, hosts: conflict })).toBe("conflict");
-    expect(profileBanner(base)).toBe("activation");
-  });
-
-  it("leaves pending edits and the on state to the header", () => {
-    expect(profileBanner({ ...base, hosts: snapshot({ dirty: true }) })).toBeNull();
-    expect(profileBanner({ ...base, active: true })).toBeNull();
-  });
-
-  it("leaves the conflict to environments and the activation summary too", () => {
-    const conflict = snapshot({ active: { kind: "conflict", ids: ["e1", "e2"] } });
-    expect(profileBanner({ ...base, profile: block, hosts: conflict })).toBeNull();
-    expect(profileBanner({ ...base, profile: block })).toBeNull();
-  });
-
-  it("offers no activation summary for an empty environment", () => {
-    expect(profileBanner({ ...base, entryCount: 0 })).toBeNull();
-  });
-});
 
 describe("profileStats", () => {
   const entry = (tag: string, enabled: boolean): HostEntry => ({
@@ -154,26 +97,11 @@ describe("verificationSummary", () => {
   });
 });
 
-describe("activationSummary", () => {
-  it("names what turns on and off", () => {
-    expect(activationSummary("Staging", { enable: 2, disable: [["Local", 3]] })).toBe(
-      "Kích hoạt sẽ bật 2 entry của Staging, tắt 3 entry của Local và ghi vào /etc/hosts",
-    );
-  });
-
-  it("says so when nothing changes", () => {
-    expect(activationSummary("Staging", { enable: 0, disable: [] })).toBe(
-      "Kích hoạt sẽ đánh dấu Staging là môi trường đang bật",
-    );
-  });
-});
-
 describe("profileSubtitle", () => {
-  it("shows the shortcut for environments only", () => {
-    expect(profileSubtitle(env, 3)).toBe("Môi trường · 3 entry · ⌘2");
-    expect(profileSubtitle(block, 1)).toBe("Block · 1 entry");
-    expect(profileSubtitle({ ...env, shortcutNumber: undefined }, 0)).toBe("Môi trường · 0 entry");
-    expect(profileSubtitle({ ...env, shortcutNumber: 12 }, 0)).toBe("Môi trường · 0 entry");
+  it("names the kind, then counts entries and how many are on", () => {
+    expect(profileSubtitle(env, 3, 2)).toBe("Môi trường · 3 entry · 2 bật");
+    expect(profileSubtitle(block, 1, 0)).toBe("Block · 1 entry · 0 bật");
+    expect(profileSubtitle(env, 0, 0)).toBe("Môi trường · 0 entry");
   });
 });
 

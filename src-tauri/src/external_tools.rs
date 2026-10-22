@@ -1,6 +1,6 @@
 //! Hands a folder or file to the tools a developer already has installed.
 //! Detection is by bundle id, first installed wins, so labels can name the
-//! app. It runs once per launch: installing an app while Hosven runs shows up
+//! app. It runs once per launch: installing an app while HostSmith runs shows up
 //! after a restart.
 
 use std::collections::HashSet;
@@ -247,7 +247,7 @@ mod tests {
     use super::*;
 
     fn temp_dir() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("hosven-tools-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("hostsmith-tools-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         dir
     }

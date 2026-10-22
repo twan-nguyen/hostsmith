@@ -5,7 +5,7 @@ import { Panel } from "@/components/panel";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { type AppearanceMode, type Settings, settingsPreviewTransparency, settingsUpdate } from "@/lib/hosven";
+import { type AppearanceMode, type Settings, settingsPreviewTransparency, settingsUpdate } from "@/lib/hostsmith";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store";
 
@@ -100,7 +100,7 @@ export function SettingsView() {
           </Group>
 
           <Group title="Trình soạn thảo">
-            <Row label="Cỡ chữ" hint="Cỡ chữ của trình soạn thảo hosts và .env, độc lập với cỡ chữ hệ thống.">
+            <Row label="Cỡ chữ" hint="Cỡ chữ của trình soạn thảo hosts, độc lập với cỡ chữ hệ thống.">
               <div className="flex items-center gap-2">
                 <Button
                   size="icon-sm"
@@ -140,7 +140,7 @@ export function SettingsView() {
           </Group>
 
           <Group title="Hệ thống">
-            <p className="text-muted-foreground">Hosven {version}</p>
+            <p className="text-muted-foreground">HostSmith {version}</p>
           </Group>
         </div>
       </div>

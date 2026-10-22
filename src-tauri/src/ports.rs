@@ -13,7 +13,7 @@ use std::sync::{Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::platform::{self, ProcessIdentity};
@@ -64,19 +64,11 @@ const DOCKER_STOP_LIMIT: Duration = Duration::from_secs(15);
 
 // MARK: - Model
 
-/// A repo Hosven knows, sent by the window, so this module does not depend on
-/// the env module.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct KnownRepo {
-    pub name: String,
-    pub path: String,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", content = "name", rename_all = "camelCase")]
 pub enum Owner {
-    /// Started from a repo Hosven knows; carries the repo name.
+    /// Started inside a project, the nearest folder above the working
+    /// directory that holds `.git`; carries that folder's name.
     Yours(String),
     /// Published by Docker; carries the container name when known.
     Container(Option<String>),
@@ -314,33 +306,39 @@ fn port_range(spec: &str) -> Option<std::ops::RangeInclusive<u16>> {
 
 // MARK: - Attribution
 
-/// Docker first, then the most specific known repo the process runs in.
+/// The nearest folder at or above `cwd` that holds `.git`, a directory in a
+/// clone or a file in a worktree or submodule. The walk stops before `home`
+/// and `/`: a dotfiles repo in the home folder would otherwise claim every
+/// process started anywhere under it.
+fn project_root(cwd: &Path, home: &Path) -> Option<PathBuf> {
+    // Projects live under the home folder. Outside it, a git checkout is a
+    // tool's own (Homebrew keeps one in /opt/homebrew), not someone's project.
+    if !cwd.is_absolute() || home.as_os_str().is_empty() || !cwd.starts_with(home) {
+        return None;
+    }
+    cwd.ancestors()
+        .take_while(|dir| *dir != home && dir.parent().is_some())
+        .find(|dir| dir.join(".git").exists())
+        .map(Path::to_path_buf)
+}
+
+/// The project a working directory belongs to, named after its folder.
+fn project_name(cwd: &str, home: &Path) -> Option<String> {
+    let root = project_root(Path::new(cwd), home)?;
+    Some(root.file_name()?.to_string_lossy().into_owned())
+}
+
+/// Docker first, then the project the process runs in.
 fn owner(
     record: &Record,
     cwd: Option<&str>,
-    repos: &[KnownRepo],
+    project: impl Fn(&str) -> Option<String>,
     containers: &HashMap<u16, String>,
 ) -> Owner {
     if record.command.to_lowercase().contains("docker") {
         return Owner::Container(containers.get(&record.port).cloned());
     }
-    let Some(cwd) = cwd else {
-        return Owner::Unknown;
-    };
-    repos
-        .iter()
-        .filter_map(|repo| {
-            let path = repo.path.trim_end_matches('/');
-            // A repo at `/` would claim every process.
-            let inside = !path.is_empty()
-                && (cwd == path
-                    || cwd
-                        .strip_prefix(path)
-                        .is_some_and(|rest| rest.starts_with('/')));
-            inside.then_some((path.len(), &repo.name))
-        })
-        .max_by_key(|(length, _)| *length)
-        .map_or(Owner::Unknown, |(_, name)| Owner::Yours(name.clone()))
+    cwd.and_then(project).map_or(Owner::Unknown, Owner::Yours)
 }
 
 fn is_system(command: &str, executable: Option<&str>) -> bool {
@@ -355,27 +353,29 @@ fn needs_attention(owner: &Owner, is_system: bool, port: u16) -> bool {
 }
 
 /// What the scan learns about each process beyond the listing.
-struct Lookups<E, I> {
+struct Lookups<E, I, P> {
     executable: E,
     identity: I,
+    /// The project a working directory belongs to.
+    project: P,
 }
 
-fn assemble<E, I>(
+fn assemble<E, I, P>(
     records: Vec<Record>,
     cwds: &HashMap<i32, String>,
-    lookups: Lookups<E, I>,
-    repos: &[KnownRepo],
+    lookups: Lookups<E, I, P>,
     containers: &HashMap<u16, String>,
 ) -> Vec<ListeningPort>
 where
     E: Fn(i32) -> Option<String>,
     I: Fn(i32) -> Option<ProcessIdentity>,
+    P: Fn(&str) -> Option<String>,
 {
     let mut ports: Vec<ListeningPort> = records
         .into_iter()
         .map(|record| {
             let cwd = cwds.get(&record.pid).cloned();
-            let owner = owner(&record, cwd.as_deref(), repos, containers);
+            let owner = owner(&record, cwd.as_deref(), &lookups.project, containers);
             let is_system = is_system(&record.command, (lookups.executable)(record.pid).as_deref());
             ListeningPort {
                 identity: (lookups.identity)(record.pid),
@@ -464,7 +464,7 @@ fn output(program: &Path, args: &[&str], limit: Duration) -> std::io::Result<Str
     run_tool(program, args, limit).map(|ran| ran.stdout)
 }
 
-fn scan_system(repos: &[KnownRepo]) -> Result<Vec<ListeningPort>, String> {
+fn scan_system() -> Result<Vec<ListeningPort>, String> {
     let listing = output(
         Path::new(LSOF),
         &["-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pcuLn"],
@@ -500,11 +500,13 @@ fn scan_system(repos: &[KnownRepo]) -> Result<Vec<ListeningPort>, String> {
         })
         .map(|text| parse_containers(&text))
         .unwrap_or_default();
+    let home = crate::config::home_dir();
     let lookups = Lookups {
         executable: platform::process_path,
         identity: platform::process_identity,
+        project: |cwd: &str| project_name(cwd, &home),
     };
-    Ok(assemble(records, &cwds, lookups, repos, &containers))
+    Ok(assemble(records, &cwds, lookups, &containers))
 }
 
 fn docker() -> Option<PathBuf> {
@@ -524,7 +526,7 @@ fn docker() -> Option<PathBuf> {
 }
 
 /// The first executable `name` on `path`, then the first executable fallback.
-/// PATH matters when Hosven runs from a terminal, as in development.
+/// PATH matters when HostSmith runs from a terminal, as in development.
 fn find_executable(name: &str, path: Option<&OsStr>, fallbacks: &[PathBuf]) -> Option<PathBuf> {
     path.into_iter()
         .flat_map(std::env::split_paths)
@@ -634,7 +636,7 @@ fn conclude(
             KillOutcome::Failed,
             (
                 format!(
-                    "Tiến trình {process} (pid {}) đã thay đổi từ lần quét trước. Hosven đã quét lại.",
+                    "Tiến trình {process} (pid {}) đã thay đổi từ lần quét trước. HostSmith đã quét lại.",
                     target.pid
                 ),
                 ToastKind::Info,
@@ -688,10 +690,10 @@ fn now_ms() -> i64 {
     jiff::Timestamp::now().as_millisecond()
 }
 
-async fn rescan(app: &AppHandle, repos: Vec<KnownRepo>) -> PortsSnapshot {
+async fn rescan(app: &AppHandle) -> PortsSnapshot {
     let state = app.state::<PortsState>();
     let seq = mutate(app, &state, Ports::begin_scan);
-    let result = tauri::async_runtime::spawn_blocking(move || scan_system(&repos))
+    let result = tauri::async_runtime::spawn_blocking(scan_system)
         .await
         .unwrap_or_else(|error| Err(error.to_string()));
     mutate(app, &state, |ports| {
@@ -708,20 +710,15 @@ pub fn ports_snapshot(state: State<'_, PortsState>) -> PortsSnapshot {
 }
 
 #[tauri::command]
-pub async fn ports_scan(app: AppHandle, repos: Vec<KnownRepo>) -> PortsSnapshot {
-    rescan(&app, repos).await
+pub async fn ports_scan(app: AppHandle) -> PortsSnapshot {
+    rescan(&app).await
 }
 
 /// Sends SIGTERM, or SIGKILL when `force`, waits for the process to leave,
 /// then rescans. Either signal goes only to the process the last scan listed
 /// under that pid.
 #[tauri::command]
-pub async fn ports_kill(
-    app: AppHandle,
-    pid: i32,
-    force: bool,
-    repos: Vec<KnownRepo>,
-) -> Result<KillOutcome, String> {
+pub async fn ports_kill(app: AppHandle, pid: i32, force: bool) -> Result<KillOutcome, String> {
     let state = app.state::<PortsState>();
     let target = state
         .lock()
@@ -744,18 +741,14 @@ pub async fn ports_kill(
     };
     let (outcome, (message, kind)) = conclude(&target, force, delivery, alive);
     mutate(&app, &state, |p| p.show_toast(message, kind));
-    rescan(&app, repos).await;
+    rescan(&app).await;
     Ok(outcome)
 }
 
 /// Stops the container that publishes a port, by the name the last scan
 /// showed, then rescans.
 #[tauri::command]
-pub async fn ports_stop_container(
-    app: AppHandle,
-    name: String,
-    repos: Vec<KnownRepo>,
-) -> Result<(), String> {
+pub async fn ports_stop_container(app: AppHandle, name: String) -> Result<(), String> {
     let state = app.state::<PortsState>();
     let port = state.lock().container_port(&name).ok_or_else(|| {
         format!("Không thấy container {name} trong lần quét gần nhất. Quét lại rồi thử.")
@@ -776,7 +769,7 @@ pub async fn ports_stop_container(
         ),
     };
     mutate(&app, &state, |p| p.show_toast(message, kind));
-    rescan(&app, repos).await;
+    rescan(&app).await;
     Ok(())
 }
 
@@ -788,10 +781,17 @@ mod tests {
     const CWDS: &str = include_str!("../tests/fixtures/lsof-cwd.txt");
     const DOCKER_PS: &str = include_str!("../tests/fixtures/docker-ps.txt");
 
-    fn repo(name: &str, path: &str) -> KnownRepo {
-        KnownRepo {
-            name: name.into(),
-            path: path.into(),
+    /// Projects by folder prefix, standing in for the git lookup.
+    fn projects(roots: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+        let roots: Vec<(String, String)> = roots
+            .iter()
+            .map(|(name, path)| (name.to_string(), path.to_string()))
+            .collect();
+        move |cwd: &str| {
+            roots
+                .iter()
+                .find(|(_, path)| cwd == path || cwd.starts_with(&format!("{path}/")))
+                .map(|(name, _)| name.clone())
         }
     }
 
@@ -860,43 +860,106 @@ mod tests {
     }
 
     #[test]
-    fn attributes_to_the_repo_the_process_runs_in() {
-        let repos = [
-            repo("shop", "/Users/dev/code/shop"),
-            repo("web", "/Users/dev/code/shop/web/"),
-        ];
+    fn attributes_to_the_project_the_process_runs_in() {
+        let project = projects(&[("shop", "/Users/dev/code/shop")]);
         let none = HashMap::new();
         let node = record("node", 3000);
-        let at = |cwd: &str| owner(&node, Some(cwd), &repos, &none);
-        assert_eq!(at("/Users/dev/code/shop"), Owner::Yours("shop".into()));
-        assert_eq!(at("/Users/dev/code/shop/api"), Owner::Yours("shop".into()));
-        // The most specific repo wins, whatever the order.
         assert_eq!(
-            at("/Users/dev/code/shop/web/src"),
-            Owner::Yours("web".into())
+            owner(&node, Some("/Users/dev/code/shop/api"), &project, &none),
+            Owner::Yours("shop".into())
         );
-        // A sibling that only shares a prefix is not inside.
-        assert_eq!(at("/Users/dev/code/shop-admin"), Owner::Unknown);
-        assert_eq!(owner(&node, None, &repos, &none), Owner::Unknown);
-        let root = [repo("everything", "/")];
-        assert_eq!(owner(&node, Some("/tmp"), &root, &none), Owner::Unknown);
+        assert_eq!(
+            owner(&node, Some("/Users/dev/code/shop-admin"), &project, &none),
+            Owner::Unknown
+        );
+        assert_eq!(owner(&node, None, &project, &none), Owner::Unknown);
+    }
+
+    fn temp_dir() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("hostsmith-ports-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // The temporary folder may sit behind a symlink (`/var` on macOS);
+        // the walk compares paths as lsof reports them, resolved.
+        dir.canonicalize().unwrap()
+    }
+
+    #[test]
+    fn finds_the_nearest_folder_that_holds_git() {
+        let tmp = temp_dir();
+        let home = tmp.join("home");
+        let shop = home.join("code/shop");
+        let ui = shop.join("packages/ui");
+        for dir in [
+            home.join(".git"),
+            shop.join(".git"),
+            shop.join("web/src"),
+            ui.join("src"),
+            home.join("scratch"),
+        ] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        // Worktrees and submodules have a `.git` file instead of a folder.
+        std::fs::write(ui.join(".git"), "gitdir: ../../.git/modules/ui\n").unwrap();
+
+        assert_eq!(project_root(&shop, &home), Some(shop.clone()));
+        assert_eq!(
+            project_root(&shop.join("web/src"), &home),
+            Some(shop.clone())
+        );
+        assert_eq!(project_root(&ui.join("src"), &home), Some(ui.clone()));
+        assert_eq!(
+            project_name(shop.join("web/src").to_str().unwrap(), &home).as_deref(),
+            Some("shop")
+        );
+        assert_eq!(
+            project_name(ui.to_str().unwrap(), &home).as_deref(),
+            Some("ui")
+        );
+        let gone = tmp.join("missing");
+        assert_eq!(project_name(gone.to_str().unwrap(), &home), None);
+        std::fs::remove_dir_all(tmp).unwrap();
+    }
+
+    #[test]
+    fn the_walk_stops_before_home_and_the_root() {
+        let tmp = temp_dir();
+        let home = tmp.join("home");
+        let outside = tmp.join("outside");
+        for dir in [
+            home.join(".git"),
+            home.join("scratch"),
+            outside.join("repo/.git"),
+            outside.join("repo/sub"),
+        ] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+
+        // The home folder's own repository claims nothing under it.
+        assert_eq!(project_root(&home.join("scratch"), &home), None);
+        assert_eq!(project_root(&home, &home), None);
+        // A checkout outside the home folder, such as Homebrew's, is no project.
+        assert_eq!(project_root(&outside.join("repo/sub"), &home), None);
+        assert_eq!(project_root(Path::new("/"), &home), None);
+        assert_eq!(project_root(Path::new("relative/dir"), &home), None);
+        std::fs::remove_dir_all(tmp).unwrap();
     }
 
     #[test]
     fn docker_processes_are_containers_named_by_port() {
         let containers = parse_containers(DOCKER_PS);
-        let repos = [repo("shop", "/")];
+        // Docker wins even over a project.
+        let project = projects(&[("shop", "/Users/dev/code/shop")]);
         assert_eq!(
             owner(
                 &record("com.docker.backend", 5432),
-                Some("/"),
-                &repos,
+                Some("/Users/dev/code/shop"),
+                &project,
                 &containers
             ),
             Owner::Container(Some("shop-db".into()))
         );
         assert_eq!(
-            owner(&record("Docker", 1234), None, &repos, &containers),
+            owner(&record("Docker", 1234), None, &project, &containers),
             Owner::Container(None)
         );
     }
@@ -931,7 +994,6 @@ mod tests {
         let records = parse_listing(LISTING);
         let cwds = parse_cwds(CWDS);
         let containers = parse_containers(DOCKER_PS);
-        let repos = [repo("web", "/Users/dev/code/shop/web")];
         let identity = |pid: i32| {
             Some(ProcessIdentity {
                 uid: 501,
@@ -941,8 +1003,9 @@ mod tests {
         let lookups = Lookups {
             executable: |pid: i32| (pid == 628).then(|| "/System/Library/ControlCenter".into()),
             identity,
+            project: projects(&[("web", "/Users/dev/code/shop/web")]),
         };
-        let ports = assemble(records, &cwds, lookups, &repos, &containers);
+        let ports = assemble(records, &cwds, lookups, &containers);
 
         let ids: Vec<&str> = ports.iter().map(|p| p.id.as_str()).collect();
         assert_eq!(
@@ -970,7 +1033,7 @@ mod tests {
 
     #[test]
     fn finds_executables_on_path_before_the_fallbacks() {
-        let dir = std::env::temp_dir().join(format!("hosven-ports-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("hostsmith-ports-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let tool = dir.join("docker");
         std::fs::write(&tool, "#!/bin/sh\n").unwrap();
@@ -1030,7 +1093,7 @@ mod tests {
             message(Delivery::Changed, false, false),
             (
                 KillOutcome::Failed,
-                "Tiến trình node (pid 807) đã thay đổi từ lần quét trước. Hosven đã quét lại."
+                "Tiến trình node (pid 807) đã thay đổi từ lần quét trước. HostSmith đã quét lại."
                     .into()
             )
         );

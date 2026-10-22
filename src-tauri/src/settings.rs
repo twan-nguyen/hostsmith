@@ -108,7 +108,7 @@ impl SettingsState {
                     // Kept aside rather than overwritten by the next change.
                     let kept = config::set_aside(&path);
                     eprintln!(
-                        "hosven: settings.json could not be read ({error}); moved to {kept:?}"
+                        "hostsmith: settings.json could not be read ({error}); moved to {kept:?}"
                     );
                     Settings::default()
                 }
@@ -212,7 +212,7 @@ mod tests {
     use super::*;
 
     fn temp_dir() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("hosven-settings-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("hostsmith-settings-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }

@@ -1,4 +1,3 @@
-import { EnvPane } from "@/components/env-pane";
 import { HostsPane } from "@/components/hosts-pane";
 import { Panel } from "@/components/panel";
 import { PortsPane } from "@/components/ports-pane";
@@ -19,9 +18,6 @@ export function PaneRouter() {
       return <SettingsView />;
     case "ports":
       return <PortsPane key={key} />;
-    case "repo":
-    case "envFile":
-      return <EnvPane key={key} />;
     case "profile": {
       // Until the first snapshot there is no telling a profile from a missing one.
       if (!hosts) return <Panel />;

@@ -6,10 +6,9 @@ export type PaletteAction =
   | { type: "select"; selection: Selection }
   | { type: "switch"; profileId: string }
   | { type: "deactivate" }
-  | { type: "searchHosts"; query: string }
-  | { type: "searchEnv"; query: string };
+  | { type: "searchHosts"; query: string };
 
-export type PaletteIcon = "network" | "ports" | "folder" | "environment" | "off" | "search";
+export type PaletteIcon = "network" | "ports" | "environment" | "off" | "search";
 
 export type PaletteCommand = {
   /** Stable across queries, so the highlighted row survives typing. */
@@ -40,7 +39,6 @@ export type PaletteSources = {
   }[];
   /** Whether any environment, or several, has entries on. */
   anyActive: boolean;
-  repos: { id: string; name: string; path: string }[];
 };
 
 const SECTION_TITLES: Record<PaletteCategory, string> = {
@@ -69,16 +67,6 @@ function universe(sources: PaletteSources): PaletteCommand[] {
       category: "suggestions",
       action: { type: "select", selection: { kind: "ports" } },
     },
-    ...sources.repos.map(
-      (repo): PaletteCommand => ({
-        id: `open-repo:${repo.id}`,
-        title: `Mở repo ${repo.name}`,
-        subtitle: repo.path,
-        icon: "folder",
-        category: "suggestions",
-        action: { type: "select", selection: { kind: "repo", id: repo.id } },
-      }),
-    ),
   ];
 
   for (const env of sources.environments) {
@@ -109,25 +97,15 @@ function universe(sources: PaletteSources): PaletteCommand[] {
   return commands;
 }
 
-function searchJumps(query: string): PaletteCommand[] {
-  return [
-    {
-      id: "search-hosts",
-      title: `Tìm "${query}" trong Hosts`,
-      subtitle: "Lọc theo hostname / IP",
-      icon: "search",
-      category: "suggestions",
-      action: { type: "searchHosts", query },
-    },
-    {
-      id: "search-env",
-      title: `Tìm "${query}" trong Env`,
-      subtitle: "Lọc theo key / value",
-      icon: "search",
-      category: "suggestions",
-      action: { type: "searchEnv", query },
-    },
-  ];
+function searchJump(query: string): PaletteCommand {
+  return {
+    id: "search-hosts",
+    title: `Tìm "${query}" trong Hosts`,
+    subtitle: "Lọc theo hostname / IP",
+    icon: "search",
+    category: "suggestions",
+    action: { type: "searchHosts", query },
+  };
 }
 
 /** The palette's sections for `query`, best match first in each. */
@@ -143,8 +121,8 @@ export function paletteSections(query: string, sources: PaletteSources): Palette
       const best = Math.max(title, subtitle * 0.6);
       return best === -Infinity ? [] : [[command, best]];
     });
-    // Score 0, so a command that matches by name still ranks above them.
-    scored.push(...searchJumps(trimmed).map((command): [PaletteCommand, number] => [command, 0]));
+    // Score 0, so a command that matches by name still ranks above it.
+    scored.push([searchJump(trimmed), 0]);
   }
 
   return ORDER.flatMap((category) => {

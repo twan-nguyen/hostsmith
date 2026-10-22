@@ -10,12 +10,16 @@
     --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
     --animate-view-in: view-in 200ms var(--ease-out-quart);
     --animate-fade-in: fade-in 150ms var(--ease-out-quart);
+    --animate-toast-in: toast-in 220ms var(--ease-out-quart);
 
     @keyframes view-in {
         from { opacity: 0; transform: translateY(4px); }
     }
     @keyframes fade-in {
         from { opacity: 0; }
+    }
+    @keyframes toast-in {
+        from { opacity: 0; transform: translateY(8px) scale(0.98); }
     }
 }
 
@@ -180,11 +184,7 @@
 /* Code editor tokens: addresses, names, values and comments read apart at a glance. */
 @layer components {
   .cm-tok-ip { color: var(--chart-1); }
-  .cm-tok-host,
-  .cm-tok-key { color: var(--foreground); font-weight: 500; }
-  .cm-tok-value { color: var(--chart-2); }
-  .cm-tok-keyword { color: var(--chart-3); }
-  .cm-tok-punct { color: var(--muted-foreground); }
+  .cm-tok-host { color: var(--foreground); font-weight: 500; }
   .cm-tok-comment { color: var(--muted-foreground); }
   .cm-tok-marker { color: var(--muted-foreground); font-weight: 600; }
   .cm-tok-disabled { opacity: 0.45; }

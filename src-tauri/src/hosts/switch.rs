@@ -43,15 +43,6 @@ pub struct PendingSwitch {
     pub pending_count: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SwitchPreview {
-    /// Entries of the target that a switch turns on.
-    pub enable: usize,
-    /// Entries turned off, per other environment.
-    pub disable: Vec<(String, usize)>,
-}
-
 impl Hosts {
     fn environments(&self) -> impl Iterator<Item = &Profile> {
         self.profiles.iter().filter(|p| p.is_exclusive)
@@ -81,31 +72,6 @@ impl Hosts {
             ActiveState::Active { id } => self.profiles.iter().find(|p| p.id == id),
             _ => None,
         }
-    }
-
-    pub fn switch_preview(&self, target: Option<Uuid>) -> SwitchPreview {
-        let name = target
-            .and_then(|id| self.environments().find(|p| p.id == id))
-            .map(|p| p.name.clone());
-        let enable = self
-            .entries
-            .iter()
-            .filter(|e| !e.enabled && e.tag.is_some() && e.tag == name)
-            .count();
-        let disable = self
-            .environments()
-            .filter(|p| Some(&p.name) != name.as_ref())
-            .map(|p| {
-                let count = self
-                    .entries
-                    .iter()
-                    .filter(|e| e.enabled && e.tag.as_deref() == Some(p.name.as_str()))
-                    .count();
-                (p.name.clone(), count)
-            })
-            .filter(|(_, count)| *count > 0)
-            .collect();
-        SwitchPreview { enable, disable }
     }
 
     /// Switches to one environment, or with `None` turns every environment
@@ -446,15 +412,6 @@ mod tests {
         h.set_raw_draft(Some(h.serialize()), &h.serialize());
         let step = h.switch_environment(Some(id(&h, "Staging")), SwitchPolicy::Refuse);
         assert_eq!(writes.run(&mut h, step), Outcome::Written);
-    }
-
-    #[test]
-    fn preview_counts_what_a_switch_turns_on_and_off() {
-        let h = make(FIXTURE);
-        let preview = h.switch_preview(Some(id(&h, "Staging")));
-        assert_eq!(preview.enable, 1);
-        assert_eq!(preview.disable, [("Local".to_string(), 1)]);
-        assert_eq!(h.switch_preview(None).enable, 0);
     }
 
     #[test]

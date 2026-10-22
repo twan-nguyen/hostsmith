@@ -1,13 +1,13 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { RotateCw } from "lucide-react";
+import { Cable, RotateCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 
-import { Banner, PaneBanner } from "@/components/banner";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PaneEmpty } from "@/components/pane-empty";
 import { Panel, PanelHeader } from "@/components/panel";
 import { SegmentedControl } from "@/components/segmented-control";
+import { StatusIcon, type StatusTone } from "@/components/status-icon";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -24,12 +24,10 @@ import {
   toolsOpenInEditor,
   toolsOpenInTerminal,
   toolsRevealInFinder,
-} from "@/lib/hosven";
+} from "@/lib/hostsmith";
 import {
   type OwnerTone,
-  attentionPort,
   filterPorts,
-  knownRepos,
   localhostUrl,
   meaningfulCwd,
   ownerLabel,
@@ -42,25 +40,19 @@ import { useHomeDir } from "@/lib/use-home-dir";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store";
 
-const GRID = { gridTemplateColumns: "72px minmax(0,1fr) 112px auto" };
+// Fixed widths, so every row lines up whether or not its actions are showing.
+const GRID = { gridTemplateColumns: "64px minmax(0,1fr) minmax(120px,200px) 104px" };
 
-const DOT: Record<OwnerTone, string> = {
-  ok: "bg-success",
-  idle: "bg-muted-foreground/50",
-  danger: "bg-destructive",
-};
+const TONE: Record<OwnerTone, StatusTone> = { project: "on", container: "muted", unknown: "off" };
 
-/** How long a row stays highlighted after "Hiện tiến trình" scrolls to it. */
-const HIGHLIGHT_MS = 2400;
-
-/** A stop to confirm: SIGTERM for a process nobody knows, SIGKILL when asked or when SIGTERM was not enough. */
+/** A stop to confirm: SIGTERM first, SIGKILL when asked or when SIGTERM was not enough. */
 type PendingStop = { port: ListeningPort; force: boolean; afterTerm: boolean };
 
 /**
- * "N đang dùng · quét N giây trước". It ticks every second on its own, so
+ * "Quét N giây trước". It ticks every second on its own, so
  * the rows under it do not render again with it.
  */
-function PortsSubtitle({ ports, scannedAt }: { ports: ListeningPort[]; scannedAt: number | null }) {
+function PortsSubtitle({ scannedAt }: { scannedAt: number | null }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -68,7 +60,7 @@ function PortsSubtitle({ ports, scannedAt }: { ports: ListeningPort[]; scannedAt
   }, []);
   return (
     <span className="truncate text-xs text-muted-foreground tabular-nums" data-testid="ports-subtitle">
-      {portsSubtitle(ports, scannedAt, now)}
+      {portsSubtitle(scannedAt, now)}
     </span>
   );
 }
@@ -88,22 +80,15 @@ export function PortsPane() {
   const [scanning, setScanning] = useState(false);
   const [busy, setBusy] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<PendingStop | null>(null);
-  const [highlighted, setHighlighted] = useState<string | null>(null);
-  const rows = useRef(new Map<string, HTMLDivElement>());
-  const highlightTimer = useRef<number | undefined>(undefined);
 
   const ports = snapshot?.ports ?? [];
   const visible = filterPorts(ports, portsFilter);
-  const attention = portsFilter === "user" ? attentionPort(ports) : null;
   const isScanning = scanning || Boolean(snapshot?.scanning);
-
-  // Ports belong to whichever repo Hosven knows at the time of the call.
-  const repos = () => knownRepos(useStore.getState().env);
 
   async function scan() {
     setScanning(true);
     try {
-      await run(portsScan(repos()));
+      await run(portsScan());
     } finally {
       setScanning(false);
     }
@@ -122,10 +107,7 @@ export function PortsPane() {
       void scanRef.current();
     };
     window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      window.clearTimeout(highlightTimer.current);
-    };
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
   function setRowBusy(port: ListeningPort, on: boolean) {
@@ -141,7 +123,7 @@ export function PortsPane() {
   async function stop(port: ListeningPort, force: boolean) {
     setRowBusy(port, true);
     try {
-      const outcome = await run(portsKill(port.pid, force, repos()));
+      const outcome = await run(portsKill(port.pid, force));
       if (outcome === "stillRunning" && !force) setPending({ port, force: true, afterTerm: true });
     } finally {
       setRowBusy(port, false);
@@ -151,17 +133,10 @@ export function PortsPane() {
   async function stopContainer(port: ListeningPort, name: string) {
     setRowBusy(port, true);
     try {
-      await run(portsStopContainer(name, repos()));
+      await run(portsStopContainer(name));
     } finally {
       setRowBusy(port, false);
     }
-  }
-
-  function reveal(port: ListeningPort) {
-    rows.current.get(port.id)?.scrollIntoView({ block: "center", behavior: "smooth" });
-    setHighlighted(port.id);
-    window.clearTimeout(highlightTimer.current);
-    highlightTimer.current = window.setTimeout(() => setHighlighted(null), HIGHLIGHT_MS);
   }
 
   const openLocalhost = (port: ListeningPort) => void run(openUrl(localhostUrl(port.port)));
@@ -169,53 +144,46 @@ export function PortsPane() {
   return (
     <Panel>
       <PanelHeader>
-        <div className="flex min-w-0 flex-1 items-baseline gap-2.5">
-          <h1 className="shrink-0 font-medium">Ports</h1>
-          <PortsSubtitle ports={ports} scannedAt={snapshot?.scannedAt ?? null} />
+        <span className="text-muted-foreground [&_svg]:size-4">
+          <Cable />
+        </span>
+        <h1 className="shrink-0 font-medium">Cổng</h1>
+        <span className="text-muted-foreground tabular-nums">{visible.length}</span>
+        <div className="ml-auto flex min-w-0 items-center gap-3">
+          <PortsSubtitle scannedAt={snapshot?.scannedAt ?? null} />
         </div>
         <SegmentedControl
           label="Lọc cổng"
           value={portsFilter}
           onChange={setPortsFilter}
           options={[
+            { value: "projects", label: "Dự án", testId: "ports-filter-projects" },
             { value: "user", label: "Người dùng", testId: "ports-filter-user" },
-            { value: "repos", label: "Repo của bạn", testId: "ports-filter-repos" },
             { value: "system", label: "Hệ thống", testId: "ports-filter-system" },
           ]}
         />
         <Button
-          size="sm"
-          variant="outline"
+          size="icon-sm"
+          variant="ghost"
+          aria-label="Quét lại"
           title="Quét lại (⌘R)"
           data-testid="ports-rescan"
           disabled={isScanning}
           onClick={() => void scan()}
+          className="text-muted-foreground"
         >
           <RotateCw className={cn(isScanning && "animate-spin")} />
-          {isScanning ? "Đang quét" : "Quét lại"}
         </Button>
       </PanelHeader>
-
-      <PaneBanner toast={snapshot?.toast ?? null}>
-        {attention && (
-          <Banner
-            tone="danger"
-            title={`${attention.process} trên cổng ${attention.port} không thuộc repo nào Hosven biết`}
-            actions={[{ label: "Hiện tiến trình", onClick: () => reveal(attention) }]}
-          >
-            Dừng nó sẽ mở hộp thoại xác nhận nêu tên tiến trình và pid. Hosven gửi SIGTERM trước.
-          </Banner>
-        )}
-      </PaneBanner>
 
       <div className="min-h-0 flex-1 overflow-auto">
         {visible.length === 0 ? (
           <PaneEmpty
             title={isScanning ? "Đang quét" : "Không có cổng nào đang lắng nghe"}
             detail={
-              portsFilter === "repos"
-                ? "Không có tiến trình nào chạy từ repo Hosven biết đang giữ cổng."
-                : "Hosven liệt kê các cổng đang bị chiếm, không liệt kê cổng trống."
+              portsFilter === "projects"
+                ? "Không có tiến trình nào chạy từ một dự án git đang giữ cổng."
+                : "HostSmith liệt kê các cổng đang bị chiếm, không liệt kê cổng trống."
             }
           >
             <Button variant="outline" disabled={isScanning} onClick={() => void scan()}>
@@ -230,8 +198,8 @@ export function PortsPane() {
             >
               <span>Cổng</span>
               <span>Tiến trình</span>
-              <span>Chủ sở hữu</span>
-              <span className="sr-only">Thao tác</span>
+              <span>Thuộc về</span>
+              <span aria-label="Thao tác" />
             </div>
             {visible.map((port) => {
               const cwd = meaningfulCwd(port);
@@ -241,18 +209,11 @@ export function PortsPane() {
                 <ContextMenu key={port.id}>
                   <ContextMenuTrigger asChild>
                     <div
-                      ref={(el) => {
-                        if (el) rows.current.set(port.id, el);
-                        else rows.current.delete(port.id);
-                      }}
                       data-testid={`port-row-${port.port}`}
-                      className={cn(
-                        "grid min-h-12 animate-fade-in items-center gap-4 border-b border-border/50 px-5 py-1.5 transition-colors duration-300 hover:bg-accent data-[state=open]:bg-accent",
-                        highlighted === port.id && "bg-destructive/10 hover:bg-destructive/15",
-                      )}
+                      className="group grid min-h-12 animate-fade-in items-center gap-4 border-b border-border/50 px-5 py-1.5 transition-colors duration-100 hover:bg-accent data-[state=open]:bg-accent"
                       style={GRID}
                     >
-                      <span className="flex h-6 w-fit min-w-14 items-center justify-center rounded-md bg-muted px-2 font-mono text-xs font-medium tabular-nums">
+                      <span className="font-mono text-xs font-medium tabular-nums">
                         {port.port}
                       </span>
                       <span className="flex min-w-0 flex-col">
@@ -266,17 +227,31 @@ export function PortsPane() {
                           {portDetail(port, home)}
                         </span>
                       </span>
-                      <span className="flex items-center gap-2 text-muted-foreground">
-                        <span className={cn("size-2 shrink-0 rounded-full", DOT[tone])} />
-                        {ownerLabel(port.owner)}
+                      <span
+                        className={cn("flex min-w-0 items-center gap-2", tone !== "project" && "text-muted-foreground")}
+                        title={tone === "container" ? "Container" : tone === "project" ? "Dự án git" : undefined}
+                      >
+                        <StatusIcon tone={TONE[tone]} />
+                        <span className="truncate">{ownerLabel(port.owner)}</span>
                       </span>
-                      <span className="flex items-center justify-end gap-1.5">
+                      {/* Actions show on the row under the pointer, as in a list of mail. */}
+                      <span
+                        className={cn(
+                          "flex items-center justify-end gap-1.5 opacity-0 transition-opacity duration-100 group-hover:opacity-100 focus-within:opacity-100",
+                          rowBusy && "opacity-100",
+                        )}
+                      >
                         {port.owner.kind === "yours" && (
                           <>
                             <Button size="xs" variant="outline" onClick={() => openLocalhost(port)}>
                               Mở
                             </Button>
-                            <Button size="xs" variant="destructive" disabled={rowBusy} onClick={() => void stop(port, false)}>
+                            <Button
+                              size="xs"
+                              variant="destructive"
+                              disabled={rowBusy}
+                              onClick={() => setPending({ port, force: false, afterTerm: false })}
+                            >
                               Dừng
                             </Button>
                           </>
@@ -358,7 +333,9 @@ export function PortsPane() {
                   ? pending.afterTerm
                     ? "Tiến trình vẫn chạy sau SIGTERM. SIGKILL dừng nó ngay và không cho nó lưu gì cả."
                     : "SIGKILL dừng tiến trình ngay và không cho nó lưu gì cả."
-                  : "Hosven không biết tiến trình này thuộc project nào. Nó nhận SIGTERM và có thể mất dữ liệu chưa lưu."}
+                  : pending.port.owner.kind === "yours"
+                    ? `Tiến trình của dự án ${pending.port.owner.name} nhận SIGTERM để tự dừng.`
+                    : "HostSmith không biết tiến trình này thuộc dự án nào. Nó nhận SIGTERM và có thể mất dữ liệu chưa lưu."}
               </span>
             </span>
           )

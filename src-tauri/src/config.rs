@@ -1,5 +1,5 @@
-//! Hosven keeps its plain-text configuration in `$XDG_CONFIG_HOME/hosven`,
-//! falling back to `~/.config/hosven`, so a developer can version it in their
+//! HostSmith keeps its plain-text configuration in `$XDG_CONFIG_HOME/hostsmith`,
+//! falling back to `~/.config/hostsmith`, so a developer can version it in their
 //! dotfiles. `dirs::config_dir()` is not used: on macOS it points at
 //! Application Support.
 
@@ -10,12 +10,45 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-pub fn config_dir() -> PathBuf {
-    let base = match std::env::var("XDG_CONFIG_HOME") {
+fn config_base() -> PathBuf {
+    match std::env::var("XDG_CONFIG_HOME") {
         Ok(xdg) if !xdg.is_empty() => PathBuf::from(xdg),
         _ => home_dir().join(".config"),
-    };
-    base.join("hosven")
+    }
+}
+
+pub fn config_dir() -> PathBuf {
+    config_base().join("hostsmith")
+}
+
+/// Files the app kept under its earlier name, before 2.0 was renamed.
+const CARRIED_OVER: [&str; 2] = ["profiles.json", "settings.json"];
+
+/// Copies the configuration of the app's earlier name, `hosven`, the first
+/// time the new directory is missing. The old directory is left as it was,
+/// so going back to an older build loses nothing.
+pub fn carry_over_old_config() {
+    carry_over(&config_base().join("hosven"), &config_dir());
+}
+
+fn carry_over(old: &Path, new: &Path) {
+    if new.exists() || !old.is_dir() {
+        return;
+    }
+    if let Err(error) = fs::create_dir_all(new) {
+        eprintln!("hostsmith: could not create {}: {error}", new.display());
+        return;
+    }
+    for name in CARRIED_OVER {
+        let from = old.join(name);
+        if from.is_file()
+            && let Err(error) = fs::read(&from).and_then(|bytes| {
+                write_atomic(&new.join(name), &bytes).map_err(std::io::Error::other)
+            })
+        {
+            eprintln!("hostsmith: could not carry over {name}: {error}");
+        }
+    }
 }
 
 /// The preferences Hosven 1.x kept in UserDefaults, read once for migration.
@@ -60,8 +93,8 @@ pub fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), Str
 /// Each call gets its own temporary name, created fresh, so two saves of the
 /// same file at once never write into one temporary file, and a name planted
 /// in the directory beforehand is never followed or reused. The file is
-/// readable by its owner only: `env.json` holds dotenv contents, secrets
-/// included.
+/// readable by its owner only: nothing else on the machine has a reason to
+/// read the user's setup.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let dir = path.parent().ok_or("Đường dẫn không hợp lệ")?;
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
@@ -93,7 +126,7 @@ mod tests {
     use serde_json::json;
 
     fn temp_dir() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("hosven-config-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("hostsmith-config-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -139,7 +172,7 @@ mod tests {
     #[test]
     fn saved_files_are_private_to_their_owner() {
         let dir = temp_dir();
-        let path = dir.join("env.json");
+        let path = dir.join("settings.json");
         write_json_atomic(&path, &json!({ "secret": "x" })).unwrap();
         let mode =
             std::os::unix::fs::PermissionsExt::mode(&fs::metadata(&path).unwrap().permissions());
@@ -148,9 +181,33 @@ mod tests {
     }
 
     #[test]
+    fn carries_the_old_config_over_once_and_leaves_it_in_place() {
+        let dir = temp_dir();
+        let old = dir.join("hosven");
+        let new = dir.join("hostsmith");
+        fs::create_dir_all(&old).unwrap();
+        fs::write(old.join("profiles.json"), "[]").unwrap();
+        fs::write(old.join("env.json"), "{}").unwrap();
+
+        carry_over(&old, &new);
+        assert_eq!(fs::read_to_string(new.join("profiles.json")).unwrap(), "[]");
+        assert!(
+            !new.join("env.json").exists(),
+            "the dropped .env data stays behind"
+        );
+        assert!(old.join("profiles.json").exists());
+
+        // Once the new directory exists, later edits to the old one are not copied.
+        fs::write(old.join("profiles.json"), "[1]").unwrap();
+        carry_over(&old, &new);
+        assert_eq!(fs::read_to_string(new.join("profiles.json")).unwrap(), "[]");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn replaces_an_existing_file() {
         let dir = temp_dir();
-        let path = dir.join("env.json");
+        let path = dir.join("settings.json");
         write_json_atomic(&path, &json!({ "version": 1 })).unwrap();
         write_json_atomic(&path, &json!({ "version": 2 })).unwrap();
         assert!(fs::read_to_string(&path).unwrap().contains('2'));

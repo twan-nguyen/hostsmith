@@ -15,7 +15,6 @@ const env = (name: string, extra: Partial<PaletteSources["environments"][number]
 const sources = (overrides: Partial<PaletteSources> = {}): PaletteSources => ({
   environments: [env("Release"), env("Production"), env("Master")],
   anyActive: false,
-  repos: [],
   ...overrides,
 });
 
@@ -41,9 +40,9 @@ describe("paletteSections", () => {
     expect(flat("rel")[0].title).toContain("Release");
   });
 
-  it("still offers both search jumps when nothing matches", () => {
+  it("still offers the hosts search when nothing matches", () => {
     const items = flat("zzzqqq");
-    expect(items.map((c) => c.action.type)).toEqual(["searchHosts", "searchEnv"]);
+    expect(items.map((c) => c.action.type)).toEqual(["searchHosts"]);
   });
 
   it("surfaces the hosts file for 'hosts'", () => {
@@ -62,16 +61,9 @@ describe("paletteSections", () => {
     expect(items.find((c) => c.title === "Chuyển sang B")?.shortcut).toBeUndefined();
   });
 
-  it("offers to open each repo", () => {
-    const suggestions = paletteSections("api", sources({ repos: [{ id: "r1", name: "api", path: "/code/api" }] })).find(
-      (s) => s.category === "suggestions",
-    )!;
-    expect(suggestions.items[0].action).toEqual({ type: "select", selection: { kind: "repo", id: "r1" } });
-  });
-
-  it("offers search jumps only for a non-empty query", () => {
-    expect(flat("").some((c) => c.action.type.startsWith("search"))).toBe(false);
-    expect(flat("abc").filter((c) => c.action.type.startsWith("search"))).toHaveLength(2);
+  it("offers the hosts search only for a non-empty query", () => {
+    expect(flat("").some((c) => c.action.type === "searchHosts")).toBe(false);
+    expect(flat("abc").filter((c) => c.action.type === "searchHosts")).toHaveLength(1);
   });
 
   it("caps each section", () => {

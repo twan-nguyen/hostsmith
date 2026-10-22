@@ -1,11 +1,8 @@
-import { Box, Ellipsis, HardDriveDownload, Network, Plus, Undo2 } from "lucide-react";
+import { Box, Ellipsis, FileText, HardDriveDownload, Plus, Undo2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { PaneBanner } from "@/components/banner";
 import { CodeEditor, type CodeEditorHandle } from "@/components/code-editor";
 import { EntryDialog } from "@/components/entry-dialog";
-import { EnvironmentConflictBanner } from "@/components/environment-conflict-banner";
-import { ExternalChangeBanner, LoadErrorBanner, VerificationBanner } from "@/components/hosts-banners";
 import { Panel, PanelHeader, PendingPill } from "@/components/panel";
 import { PaneSearch } from "@/components/pane-search";
 import { Button } from "@/components/ui/button";
@@ -24,8 +21,8 @@ import {
   hostsDiscard,
   hostsSetRawDraft,
   hostsSnapshot,
-} from "@/lib/hosven";
-import { blockMarker, draftFor, hostsBanner } from "@/lib/hosts-view";
+} from "@/lib/hostsmith";
+import { blockMarker, draftFor } from "@/lib/hosts-view";
 import { useSaveShortcut } from "@/lib/use-save-shortcut";
 import { useStore } from "@/store";
 
@@ -181,7 +178,7 @@ export function HostsPane({ block }: { block?: string }) {
   return (
     <Panel>
       <PanelHeader>
-        <span className="text-muted-foreground [&_svg]:size-4">{block ? <Box /> : <Network />}</span>
+        <span className="text-muted-foreground [&_svg]:size-4">{block ? <Box /> : <FileText />}</span>
         <h1 className="truncate font-medium">{block ?? "Hosts hệ thống"}</h1>
         <span className="shrink-0 font-mono text-xs text-muted-foreground">/etc/hosts</span>
         {hosts?.dirty && <PendingPill count={hosts.pendingCount} testId="hosts-pending" />}
@@ -192,24 +189,38 @@ export function HostsPane({ block }: { block?: string }) {
           onEnter={() => editor.current?.find(query)}
           placeholder="Tìm entry"
           testId="hosts-search-field"
-          className="ml-auto w-56"
+          className="ml-auto w-60"
         />
+
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          onClick={addEntry}
+          aria-label="Thêm entry"
+          title="Thêm entry"
+          data-testid="hosts-add-entry"
+          className="text-muted-foreground"
+        >
+          <Plus />
+        </Button>
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon-sm" aria-label="Thêm" title="Thêm" data-testid="hosts-menu">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Thêm thao tác"
+              title="Thêm thao tác"
+              data-testid="hosts-menu"
+              className="text-muted-foreground"
+            >
               <Ellipsis />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-52">
-            <DropdownMenuItem onSelect={addEntry}>
-              <Plus />
-              Thêm entry
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
             <DropdownMenuItem disabled={applying} onSelect={() => void run(hostsBackup())}>
               <HardDriveDownload />
-              Sao lưu
+              Sao lưu /etc/hosts
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -223,18 +234,21 @@ export function HostsPane({ block }: { block?: string }) {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <Button size="sm" onClick={() => void apply()} disabled={!hosts || applying} data-testid="hosts-apply">
+        <Button
+          size="sm"
+          variant={canDiscard ? "default" : "outline"}
+          onClick={() => void apply()}
+          disabled={!hosts || applying || !canDiscard}
+          data-testid="hosts-apply"
+        >
           {applying ? "Đang ghi" : "Áp dụng"}
-          <Kbd className="bg-primary-foreground/15 text-primary-foreground">⌘S</Kbd>
+          {canDiscard && <Kbd className="bg-primary-foreground/15 text-primary-foreground">⌘S</Kbd>}
         </Button>
       </PanelHeader>
-
-      <PaneBanner toast={hosts?.toast ?? null}>{bannerFor(hosts)}</PaneBanner>
 
       <CodeEditor
         ref={editor}
         value={text}
-        language="hosts"
         onChange={onEdit}
         onSave={() => void apply()}
         readOnly={applying}
@@ -244,20 +258,4 @@ export function HostsPane({ block }: { block?: string }) {
       <EntryDialog open={adding} entry={null} initialTag={block ?? null} onClose={() => setAdding(false)} />
     </Panel>
   );
-}
-
-/** The pane's own banner, or nothing; a plain call, so the slot knows when it is empty. */
-function bannerFor(hosts: HostsSnapshot | null): React.ReactNode {
-  switch (hostsBanner(hosts)) {
-    case "conflict":
-      return hosts?.active.kind === "conflict" ? <EnvironmentConflictBanner ids={hosts.active.ids} /> : null;
-    case "loadError":
-      return hosts?.loadError ? <LoadErrorBanner error={hosts.loadError} /> : null;
-    case "externalChange":
-      return <ExternalChangeBanner />;
-    case "verification":
-      return <VerificationBanner />;
-    default:
-      return null;
-  }
 }

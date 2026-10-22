@@ -4,7 +4,7 @@ import { Field, FormDialog } from "@/components/form-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { type HostEntry, hostsAddEntry, hostsUpdateEntry } from "@/lib/hosven";
+import { type HostEntry, hostsAddEntry, hostsUpdateEntry } from "@/lib/hostsmith";
 import { blockChoices, hostnameTaken, parseAliases } from "@/lib/hosts-view";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store";

@@ -1,6 +1,6 @@
 //! The menu bar icon and the panel that drops from it, and the app's place in
-//! the Dock. With the icon on, closing the main window leaves Hosven running
-//! in the menu bar only; with it off, Hosven stays in the Dock instead.
+//! the Dock. With the icon on, closing the main window leaves HostSmith running
+//! in the menu bar only; with it off, HostSmith stays in the Dock instead.
 
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -12,7 +12,7 @@ use tauri_plugin_positioner::{Position, WindowExt};
 
 use crate::hosts::{self, ActiveState, Hosts, HostsState, Outcome};
 
-const TRAY_ID: &str = "hosven";
+const TRAY_ID: &str = "hostsmith";
 const MAIN: &str = "main";
 const PANEL: &str = "panel";
 
@@ -86,7 +86,7 @@ pub fn sync(app: &AppHandle, hosts: &Hosts) {
         if let Some(tray) = handle.tray_by_id(TRAY_ID)
             && let Err(error) = tray.set_icon(Some(icon(active)))
         {
-            eprintln!("hosven: could not change the menu bar icon: {error}");
+            eprintln!("hostsmith: could not change the menu bar icon: {error}");
         }
     });
 }
@@ -113,7 +113,7 @@ pub fn set_enabled(app: &AppHandle, enabled: bool) {
             .icon(icon(active))
             .icon_as_template(true)
             .show_menu_on_left_click(false)
-            .tooltip("Hosven")
+            .tooltip("HostSmith")
             .on_tray_icon_event(on_tray_event)
             .build(app);
         match built {
@@ -121,7 +121,7 @@ pub fn set_enabled(app: &AppHandle, enabled: bool) {
                 inner.enabled = true;
                 inner.showing_active = Some(active);
             }
-            Err(error) => eprintln!("hosven: could not add the menu bar icon: {error}"),
+            Err(error) => eprintln!("hostsmith: could not add the menu bar icon: {error}"),
         }
     } else {
         app.remove_tray_by_id(TRAY_ID);
@@ -147,7 +147,7 @@ fn set_accessory(app: &AppHandle, inner: &mut Inner, accessory: bool) {
             tauri::ActivationPolicy::Regular
         };
         if let Err(error) = app.set_activation_policy(policy) {
-            eprintln!("hosven: could not change the Dock presence: {error}");
+            eprintln!("hostsmith: could not change the Dock presence: {error}");
             return;
         }
     }
@@ -187,7 +187,7 @@ fn toggle_panel(app: &AppHandle) {
         return;
     }
     if let Err(error) = panel.move_window_constrained(Position::TrayCenter) {
-        eprintln!("hosven: could not place the panel: {error}");
+        eprintln!("hostsmith: could not place the panel: {error}");
     }
     let _ = panel.show();
     let _ = panel.set_focus();

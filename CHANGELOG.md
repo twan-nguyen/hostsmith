@@ -4,16 +4,17 @@
 
 ### ⚠ BREAKING CHANGES
 
-* Hosven is rewritten with Tauri 2, Rust and React. Releases come from `vX.Y.Z` tags and install with `brew install --cask twan-nguyen/tap/hosven`; the `twan-nguyen/hosven` tap is deprecated and Sparkle hands 1.x users over once.
+* Hosven is renamed HostSmith and rewritten with Tauri 2, Rust and React. Releases come from `vX.Y.Z` tags and install with `brew install --cask twan-nguyen/tap/hostsmith`; the `twan-nguyen/hosven` tap is deprecated and Sparkle hands 1.x users over once.
+* the `.env` editor from 1.x is removed
 
 ### Features
 
 * environments exclude each other: switching writes `/etc/hosts` once and turns the other environments off; blocks stay independent
 * every hosts write checks the hostnames it changed with the system resolver
-* `.env` files: masked secrets, variants for repeated keys, missing variables from `.env.example`, git exposure warnings, external-change protection
-* ports pane: listening TCP ports attributed to repos and containers, stop with SIGTERM then SIGKILL
-* menu bar panel, ⌘K palette and the `hosven://` URL scheme
-* configuration lives in `~/.config/hosven` (`profiles.json`, `env.json`, `settings.json`), migrated from the 1.x preferences
+* ports pane: listening TCP ports attributed to git projects and containers, stop with SIGTERM then SIGKILL
+* an environment switcher at the foot of the sidebar; messages float over the window instead of taking room in the panes
+* menu bar panel, ⌘K palette and the `hostsmith://` URL scheme
+* configuration lives in `~/.config/hostsmith` (`profiles.json`, `settings.json`), copied from `~/.config/hosven` and migrated from the 1.x preferences
 
 ### Bug Fixes
 

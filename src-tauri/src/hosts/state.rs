@@ -17,7 +17,7 @@ use crate::profiles::{self, Profile, ProfileColor, ProfileStore};
 use crate::toast::Toasts;
 use crate::util::changed_lines;
 
-pub const BUSY: &str = "Hosven đang ghi /etc/hosts. Thử lại khi xong.";
+pub const BUSY: &str = "HostSmith đang ghi /etc/hosts. Thử lại khi xong.";
 pub const STALE_EDITOR: &str = "Nội dung hosts vừa đổi nên chưa ghi. Trình soạn thảo đã lấy nội dung mới, hãy xem lại rồi áp dụng.";
 
 /// The fields of the entry form.
@@ -205,7 +205,7 @@ impl Hosts {
         Ok(())
     }
 
-    /// Called when the file changed on disk. Hosven's own write leaves the
+    /// Called when the file changed on disk. HostSmith's own write leaves the
     /// content it wrote, which is not an outside change.
     pub fn disk_changed(&mut self, on_disk: Option<&str>) {
         if on_disk != Some(self.original.as_str()) {
@@ -632,9 +632,12 @@ impl Hosts {
         if self.applying {
             Some(BUSY.to_string())
         } else if self.load_error.is_some() {
-            Some("Không đọc được /etc/hosts nên Hosven không ghi đè nó. Tải lại để thử lại.".into())
+            Some(
+                "Không đọc được /etc/hosts nên HostSmith không ghi đè nó. Tải lại để thử lại."
+                    .into(),
+            )
         } else if self.external_change {
-            Some("/etc/hosts vừa đổi bên ngoài Hosven. Tải lại trước khi áp dụng.".into())
+            Some("/etc/hosts vừa đổi bên ngoài HostSmith. Tải lại trước khi áp dụng.".into())
         } else {
             None
         }

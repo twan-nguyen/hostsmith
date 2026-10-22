@@ -13,14 +13,14 @@ pub fn write(runner: &dyn PrivilegedRunner, content: &str) -> RunOutcome {
 }
 
 /// The content goes to a root-owned file beside the hosts file first, and
-/// only a complete copy is renamed over it: if Hosven died mid-stream, `cat`
+/// only a complete copy is renamed over it: if HostSmith died mid-stream, `cat`
 /// would see an early end of input, and writing straight into the hosts file
 /// would leave it cut short. The status reflects the write alone; once the
 /// file is in place a failed cache flush must still read as written, or a
 /// switch would roll the model back while the disk holds the new content.
 fn write_script(len: usize) -> String {
     format!(
-        "t=$(/usr/bin/mktemp /private/etc/hosts.hosven.XXXXXX) || exit $?; \
+        "t=$(/usr/bin/mktemp /private/etc/hosts.hostsmith.XXXXXX) || exit $?; \
          /bin/cat > \"$t\" || {{ /bin/rm -f \"$t\"; exit 1; }}; \
          [ \"$(/usr/bin/wc -c < \"$t\" | /usr/bin/tr -d ' ')\" = \"{len}\" ] \
          || {{ /bin/rm -f \"$t\"; echo 'nội dung nhận được không đủ' >&2; exit 1; }}; \
@@ -106,7 +106,9 @@ mod tests {
     fn the_script_replaces_the_file_only_with_a_complete_copy() {
         let script = write_script(1234);
         assert!(
-            script.starts_with("t=$(/usr/bin/mktemp /private/etc/hosts.hosven.XXXXXX) || exit $?;")
+            script.starts_with(
+                "t=$(/usr/bin/mktemp /private/etc/hosts.hostsmith.XXXXXX) || exit $?;"
+            )
         );
         assert!(script.contains("= \"1234\" ]"), "the byte count is checked");
         assert!(script.contains("/bin/mv -f \"$t\" /etc/hosts"));

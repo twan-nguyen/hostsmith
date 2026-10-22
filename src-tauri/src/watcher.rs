@@ -1,4 +1,4 @@
-//! Watches one file for changes made outside Hosven.
+//! Watches one file for changes made outside HostSmith.
 //!
 //! Editors save atomically: they write a sibling file and rename it over the
 //! original, which ends a watch held on the old inode. Watching the parent
@@ -13,7 +13,7 @@ use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{DebounceEventResult, Debouncer, new_debouncer};
 
 /// Callers compare the file's content with what they last read or wrote, so
-/// Hosven's own saves need no special handling here.
+/// HostSmith's own saves need no special handling here.
 pub struct FileWatcher {
     // Dropping the debouncer stops the watch.
     _debouncer: Debouncer<RecommendedWatcher>,
@@ -69,9 +69,9 @@ mod tests {
     const QUIET: Duration = Duration::from_millis(1200);
 
     fn setup() -> (PathBuf, FileWatcher, Receiver<()>) {
-        let dir = std::env::temp_dir().join(format!("hosven-watch-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("hostsmith-watch-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
-        let file = dir.join(".env");
+        let file = dir.join("hosts");
         fs::write(&file, "A=1\n").unwrap();
         let (tx, rx) = channel();
         let watcher = FileWatcher::new(&file, DEBOUNCE, move || {
@@ -116,7 +116,7 @@ mod tests {
     fn follows_atomic_saves() {
         let (file, _watcher, rx) = setup();
         for value in 0..3 {
-            let tmp = file.with_file_name(".env.swp");
+            let tmp = file.with_file_name("hosts.swp");
             fs::write(&tmp, format!("A={value}\n")).unwrap();
             fs::rename(&tmp, &file).unwrap();
             assert_eq!(rx.recv_timeout(WAIT), Ok(()), "save {value}");
@@ -134,7 +134,7 @@ mod tests {
     #[test]
     fn ignores_other_files_in_the_directory() {
         let (file, _watcher, rx) = setup();
-        fs::write(file.with_file_name(".env.example"), "B=1\n").unwrap();
+        fs::write(file.with_file_name("hosts.bak"), "B=1\n").unwrap();
         assert_eq!(drain(&rx), 0);
     }
 }

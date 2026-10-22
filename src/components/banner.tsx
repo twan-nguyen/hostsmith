@@ -1,8 +1,6 @@
 import { CircleAlert, CircleCheck, Info, TriangleAlert, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import type { Toast, ToastKind } from "@/lib/hosven";
-import { useToast } from "@/lib/use-toast";
 import { cn } from "@/lib/utils";
 
 export type BannerTone = "success" | "info" | "warning" | "danger";
@@ -13,8 +11,6 @@ const TONES: Record<BannerTone, { box: string; icon: React.ReactNode }> = {
   warning: { box: "border-warning/40 bg-warning/10", icon: <TriangleAlert className="text-warning" /> },
   danger: { box: "border-destructive/30 bg-destructive/8", icon: <CircleAlert className="text-destructive" /> },
 };
-
-const TOAST_TONES: Record<ToastKind, BannerTone> = { success: "success", error: "danger", info: "info" };
 
 export type BannerAction = { label: string; onClick: () => void; primary?: boolean; disabled?: boolean };
 
@@ -78,15 +74,4 @@ export function Banner({
       )}
     </div>
   );
-}
-
-/**
- * A pane's banner slot under its header. A fresh toast from the pane's
- * snapshot takes it for three seconds; otherwise the pane's own banner, if
- * any, shows there.
- */
-export function PaneBanner({ toast, children }: { toast: Toast | null; children?: React.ReactNode }) {
-  const [shown, dismiss] = useToast(toast);
-  const content = shown ? <Banner tone={TOAST_TONES[shown.kind]} title={shown.message} onDismiss={dismiss} /> : children;
-  return content ? <div className="shrink-0 px-5 pt-4">{content}</div> : null;
 }

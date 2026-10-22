@@ -1,10 +1,8 @@
-//! Commands other tools send through `hosven://` links:
+//! Commands other tools send through `hostsmith://` links:
 //!
-//! - `hosven://activate/<profile>` switches to an environment and writes.
-//! - `hosven://deactivate` turns every environment off and writes.
-//! - `hosven://env/<repo>/profile/<name>` applies a saved env profile.
-//! - `hosven://open/<repo>` shows a repo.
-//! - `hosven://ports` shows the ports pane.
+//! - `hostsmith://activate/<profile>` switches to an environment and writes.
+//! - `hostsmith://deactivate` turns every environment off and writes.
+//! - `hostsmith://ports` shows the ports pane.
 //!
 //! Names match regardless of case. A link cannot answer a dialog, so a switch
 //! refuses to write edits pending in the window and says so instead.
@@ -15,13 +13,12 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 use uuid::Uuid;
 
-use crate::env::{self, EnvState};
 use crate::hosts::{self, Hosts, HostsState, Outcome, Step, SwitchPolicy};
 use crate::profiles::Profile;
 use crate::toast::ToastKind;
 use crate::util::lock;
 
-const SCHEME: &str = "hosven";
+const SCHEME: &str = "hostsmith";
 
 /// How long the window gets to show a pane before a toast for it arrives: a
 /// pane that mounts with a toast already in its snapshot treats it as seen.
@@ -31,11 +28,6 @@ const SETTLE: Duration = Duration::from_millis(200);
 pub enum UrlCommand {
     Activate(String),
     Deactivate,
-    EnvProfile {
-        repo: String,
-        profile: String,
-    },
-    Open(String),
     Ports,
     /// Holds the link as it arrived, to say which one was not understood.
     Unknown(String),
@@ -63,13 +55,6 @@ impl UrlCommand {
         match (verb.to_lowercase().as_str(), args) {
             ("activate", [name]) => Self::Activate(name.clone()),
             ("deactivate", []) => Self::Deactivate,
-            ("env", [repo, keyword, profile]) if keyword.eq_ignore_ascii_case("profile") => {
-                Self::EnvProfile {
-                    repo: repo.clone(),
-                    profile: profile.clone(),
-                }
-            }
-            ("open", [repo]) => Self::Open(repo.clone()),
             ("ports", []) => Self::Ports,
             _ => unknown(),
         }
@@ -201,21 +186,6 @@ async fn run(app: &AppHandle, url: &str) {
             let step = begin_switch(&mut app.state::<HostsState>().lock(), None);
             hosts::run(app.clone(), step).await;
         }
-        UrlCommand::EnvProfile { repo, profile } => {
-            let Some(id) = find_repo(app, &repo) else {
-                return hosts_error(app, format!("Không có repo tên {repo}"));
-            };
-            navigate(app, &format!("repo:{id}")).await;
-            env::mutate(app, &app.state::<EnvState>(), |e| {
-                if let Err(error) = e.apply_profile_by_names(&repo, &profile) {
-                    e.show_toast(error, ToastKind::Error);
-                }
-            });
-        }
-        UrlCommand::Open(repo) => match find_repo(app, &repo) {
-            Some(id) => navigate(app, &format!("repo:{id}")).await,
-            None => hosts_error(app, format!("Không có repo tên {repo}")),
-        },
         UrlCommand::Ports => navigate(app, "ports").await,
         UrlCommand::Unknown(url) => hosts_error(app, format!("Không hiểu lệnh {url}")),
     }
@@ -225,10 +195,6 @@ async fn run(app: &AppHandle, url: &str) {
 async fn navigate(app: &AppHandle, selection: &str) {
     let _ = app.emit_to("main", "navigate", selection);
     tokio::time::sleep(SETTLE).await;
-}
-
-fn find_repo(app: &AppHandle, name: &str) -> Option<Uuid> {
-    app.state::<EnvState>().lock().repo_id_by_name(name)
 }
 
 fn hosts_error(app: &AppHandle, message: String) {
@@ -245,55 +211,38 @@ mod tests {
     #[test]
     fn parses_every_route() {
         assert_eq!(
-            UrlCommand::parse("hosven://activate/Staging"),
+            UrlCommand::parse("hostsmith://activate/Staging"),
             UrlCommand::Activate("Staging".into())
         );
         assert_eq!(
-            UrlCommand::parse("hosven://deactivate"),
+            UrlCommand::parse("hostsmith://deactivate"),
             UrlCommand::Deactivate
         );
-        assert_eq!(
-            UrlCommand::parse("hosven://env/api/profile/staging"),
-            UrlCommand::EnvProfile {
-                repo: "api".into(),
-                profile: "staging".into()
-            }
-        );
-        assert_eq!(
-            UrlCommand::parse("hosven://open/api"),
-            UrlCommand::Open("api".into())
-        );
-        assert_eq!(UrlCommand::parse("hosven://ports"), UrlCommand::Ports);
+        assert_eq!(UrlCommand::parse("hostsmith://ports"), UrlCommand::Ports);
     }
 
     #[test]
     fn the_verb_and_scheme_ignore_case_but_names_keep_theirs() {
         assert_eq!(
-            UrlCommand::parse("HOSVEN://Activate/Staging"),
+            UrlCommand::parse("HOSTSMITH://Activate/Staging"),
             UrlCommand::Activate("Staging".into())
         );
         assert_eq!(
-            UrlCommand::parse("hosven://ENV/Api/PROFILE/Dev"),
-            UrlCommand::EnvProfile {
-                repo: "Api".into(),
-                profile: "Dev".into()
-            }
+            UrlCommand::parse("hostsmith://activate/STAGING"),
+            UrlCommand::Activate("STAGING".into())
         );
-        assert_eq!(UrlCommand::parse("hosven://PORTS/"), UrlCommand::Ports);
+        assert_eq!(UrlCommand::parse("hostsmith://PORTS/"), UrlCommand::Ports);
     }
 
     #[test]
     fn segments_are_percent_decoded() {
         assert_eq!(
-            UrlCommand::parse("hosven://activate/My%20Env"),
+            UrlCommand::parse("hostsmith://activate/My%20Env"),
             UrlCommand::Activate("My Env".into())
         );
         assert_eq!(
-            UrlCommand::parse("hosven://env/m%E1%BB%99t/profile/a%2Fb"),
-            UrlCommand::EnvProfile {
-                repo: "một".into(),
-                profile: "a/b".into()
-            }
+            UrlCommand::parse("hostsmith://activate/m%E1%BB%99t%2Fhai"),
+            UrlCommand::Activate("một/hai".into())
         );
         // Escapes that are not hex, or not UTF-8, stay as they arrived.
         assert_eq!(percent_decode("100%"), "100%");
@@ -304,7 +253,7 @@ mod tests {
     #[test]
     fn queries_fragments_and_extra_slashes_are_ignored() {
         assert_eq!(
-            UrlCommand::parse("hosven:///activate//Staging/?from=raycast#x"),
+            UrlCommand::parse("hostsmith:///activate//Staging/?from=raycast#x"),
             UrlCommand::Activate("Staging".into())
         );
     }
@@ -312,15 +261,15 @@ mod tests {
     #[test]
     fn anything_else_is_unknown() {
         for url in [
-            "hosven://",
-            "hosven://xyz",
-            "hosven://activate",
-            "hosven://activate/a/b",
-            "hosven://deactivate/now",
-            "hosven://env/api/staging",
-            "hosven://env/api/variant/staging",
-            "hosven://open",
-            "hosven://ports/80",
+            "hostsmith://",
+            "hostsmith://xyz",
+            "hostsmith://activate",
+            "hostsmith://activate/a/b",
+            "hostsmith://deactivate/now",
+            // Routes of the removed .env editor.
+            "hostsmith://env/api/profile/staging",
+            "hostsmith://open/api",
+            "hostsmith://ports/80",
             "https://activate/Staging",
             "not a url",
         ] {

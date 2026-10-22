@@ -16,7 +16,7 @@ use super::{PrivilegedRunner, ProcessIdentity, RunOutcome};
 const ERR_AUTHORIZATION_CANCELED: i32 = -60006;
 /// The right `AuthorizationExecuteWithPrivileges` checks before it runs a tool.
 const ADMIN_RIGHT: &str = "system.privilege.admin";
-const EXIT_MARKER: &str = "HOSVEN_EXIT:";
+const EXIT_MARKER: &str = "HOSTSMITH_EXIT:";
 /// The tool the trampoline runs as root. It starts the shell with an empty
 /// environment: the app's own PATH comes from whatever started it, a terminal
 /// included, and may list folders this user can write to, which must never
@@ -515,7 +515,7 @@ mod tests {
     }
 
     fn temp_path(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("hosven-{name}-{}", uuid::Uuid::new_v4()))
+        std::env::temp_dir().join(format!("hostsmith-{name}-{}", uuid::Uuid::new_v4()))
     }
 
     fn quote(path: &std::path::Path) -> String {
@@ -552,7 +552,7 @@ mod tests {
         assert_eq!(
             wrap("cp a b || exit $?; true"),
             "echo $$\n(\ncp a b || exit $?; true\n) 2>&1\n\
-             rc=$?; printf '\\nHOSVEN_EXIT:%d\\n' \"$rc\"; exit \"$rc\"\n"
+             rc=$?; printf '\\nHOSTSMITH_EXIT:%d\\n' \"$rc\"; exit \"$rc\"\n"
         );
     }
 
@@ -648,7 +648,8 @@ mod tests {
 
     #[test]
     fn reads_pid_output_and_status() {
-        let output = parse_output("4242\ncp: /etc/hosts: Read-only file system\n\nHOSVEN_EXIT:1\n");
+        let output =
+            parse_output("4242\ncp: /etc/hosts: Read-only file system\n\nHOSTSMITH_EXIT:1\n");
         assert_eq!(
             output,
             Output {
@@ -665,19 +666,19 @@ mod tests {
             }
         );
         assert_eq!(
-            parse_output("17\nno newline\nHOSVEN_EXIT:5\n").body,
+            parse_output("17\nno newline\nHOSTSMITH_EXIT:5\n").body,
             "no newline"
         );
         assert_eq!(
-            exit_outcome(parse_output("17\n\nHOSVEN_EXIT:0\n"), Some(0)),
+            exit_outcome(parse_output("17\n\nHOSTSMITH_EXIT:0\n"), Some(0)),
             RunOutcome::Ok
         );
     }
 
     #[test]
     fn never_waits_for_a_pid_that_means_any_child() {
-        assert_eq!(parse_output("0\n\nHOSVEN_EXIT:0\n").pid, None);
-        assert_eq!(parse_output("-1\n\nHOSVEN_EXIT:0\n").pid, None);
+        assert_eq!(parse_output("0\n\nHOSTSMITH_EXIT:0\n").pid, None);
+        assert_eq!(parse_output("-1\n\nHOSTSMITH_EXIT:0\n").pid, None);
         assert_eq!(parse_output("").pid, None);
     }
 
@@ -704,7 +705,11 @@ mod tests {
     #[test]
     fn a_cut_off_input_fails_even_when_the_script_succeeded() {
         assert_eq!(
-            input_failure(parse_output("9\n\nHOSVEN_EXIT:0\n"), Some(0), "Broken pipe"),
+            input_failure(
+                parse_output("9\n\nHOSTSMITH_EXIT:0\n"),
+                Some(0),
+                "Broken pipe"
+            ),
             RunOutcome::Failed {
                 exit: -1,
                 stderr: "không gửi được nội dung cho lệnh: Broken pipe".into(),

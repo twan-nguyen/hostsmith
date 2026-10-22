@@ -15,7 +15,7 @@ import {
 } from "@codemirror/view";
 import { useEffect, useImperativeHandle, useRef } from "react";
 
-import { type Language, toggleComment, tokenize } from "@/lib/syntax";
+import { toggleComment, tokenize } from "@/lib/syntax";
 import { useStore } from "@/store";
 
 export type CodeEditorHandle = {
@@ -26,20 +26,20 @@ export type CodeEditorHandle = {
 };
 
 const MARKS = Object.fromEntries(
-  (["ip", "host", "comment", "marker", "key", "value", "punct", "keyword"] as const).flatMap((kind) => [
+  (["ip", "host", "comment", "marker"] as const).flatMap((kind) => [
     [kind, Decoration.mark({ class: `cm-tok-${kind}` })],
     [`${kind}-off`, Decoration.mark({ class: `cm-tok-${kind} cm-tok-disabled` })],
   ]),
 );
 
 /** Colours the visible lines with the tokenizer's spans. */
-function highlighter(language: Language) {
+function highlighter() {
   const build = (view: EditorView): DecorationSet => {
     const builder = new RangeSetBuilder<Decoration>();
     for (const { from, to } of view.visibleRanges) {
       for (let pos = from; pos <= to; ) {
         const line = view.state.doc.lineAt(pos);
-        for (const token of tokenize(line.text, language)) {
+        for (const token of tokenize(line.text)) {
           builder.add(line.from + token.from, line.from + token.to, MARKS[token.disabled ? `${token.kind}-off` : token.kind]);
         }
         pos = line.to + 1;
@@ -91,12 +91,11 @@ const theme = EditorView.theme({
 });
 
 /**
- * The raw hosts or dotenv editor. The parent owns the text: `value` replaces
+ * The raw hosts editor. The parent owns the text: `value` replaces
  * the document when it changes from outside, and every edit is reported.
  */
 export function CodeEditor({
   value,
-  language,
   onChange,
   onSave,
   readOnly = false,
@@ -104,7 +103,6 @@ export function CodeEditor({
   ref,
 }: {
   value: string;
-  language: Language;
   onChange: (text: string) => void;
   onSave: () => void;
   readOnly?: boolean;
@@ -128,7 +126,7 @@ export function CodeEditor({
       history(),
       search({ top: true }),
       highlightSelectionMatches(),
-      highlighter(language),
+      highlighter(),
       theme,
       editable.current.of(EditorView.editable.of(!readOnly)),
       Prec.high(
@@ -148,8 +146,8 @@ export function CodeEditor({
       editor.destroy();
       view.current = null;
     };
-    // The editor is created once per language; `value` and `readOnly` are synced below.
-  }, [language]);
+    // The editor is created once; `value` and `readOnly` are synced below.
+  }, []);
 
   useEffect(() => {
     view.current?.dispatch({ effects: editable.current.reconfigure(EditorView.editable.of(!readOnly)) });

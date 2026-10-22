@@ -17,8 +17,10 @@ jobs:
   release:
     runs-on: macos-latest
     env:
-      APP_NAME: Hosven
-      BUNDLE_ID: com.twannguyen.hosven
+      APP_NAME: HostSmith
+      BUNDLE_ID: com.hostsmith.desktop
+      # The app was called Hosven before 2.0; its files are cleaned up too.
+      OLD_BUNDLE_ID: com.twannguyen.hosven
       TAP_REPOSITORY: twan-nguyen/homebrew-tap
       # GitHub's published SSH host key, so the tap push never trusts an unknown host.
       GITHUB_SSH_HOST_KEY: github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
@@ -146,14 +148,14 @@ jobs:
           TAP_DIR="$RUNNER_TEMP/tap"
           git clone "git@github.com:$TAP_REPOSITORY.git" "$TAP_DIR"
           mkdir -p "$TAP_DIR/Casks"
-          cat > "$TAP_DIR/Casks/hosven.rb" <<CASK
-          cask "hosven" do
+          cat > "$TAP_DIR/Casks/hostsmith.rb" <<CASK
+          cask "hostsmith" do
             version "$VERSION"
             sha256 "$SHA256"
 
             url "https://github.com/$GITHUB_REPOSITORY/releases/download/v#{version}/$APP_NAME-#{version}.zip"
             name "$APP_NAME"
-            desc "Quản lý /etc/hosts, file .env và cổng đang dùng trên macOS"
+            desc "Quản lý /etc/hosts và cổng đang dùng trên macOS"
             homepage "https://github.com/$GITHUB_REPOSITORY"
 
             livecheck do
@@ -173,7 +175,10 @@ jobs:
             uninstall quit: "$BUNDLE_ID"
 
             zap trash: [
+              "~/.config/hostsmith",
               "~/.config/hosven",
+              "~/Library/Application Support/$OLD_BUNDLE_ID",
+              "~/Library/Preferences/$OLD_BUNDLE_ID.plist",
               "~/Library/Application Support/$BUNDLE_ID",
               "~/Library/Caches/$BUNDLE_ID",
               "~/Library/Preferences/$BUNDLE_ID.plist",
@@ -182,16 +187,16 @@ jobs:
             ]
           end
           CASK
-          cat "$TAP_DIR/Casks/hosven.rb"
+          cat "$TAP_DIR/Casks/hostsmith.rb"
 
           cd "$TAP_DIR"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Casks/hosven.rb
+          git add Casks/hostsmith.rb
           if git diff --cached --quiet; then
             echo "Cask already at $VERSION"
           else
-            git commit -m "hosven $VERSION"
+            git commit -m "hostsmith $VERSION"
             git push origin HEAD:main
           fi
           rm -f "$KEY_FILE"
@@ -275,7 +280,7 @@ jobs:
           fi
 
           TEXT=$(printf '%s\n' \
-            "${EMOJI} <b>Project HOSVEN</b> build <b>${STATUS_UP}</b> #${RUN_NUMBER} ${EMOJI}" \
+            "${EMOJI} <b>Project HOSTSMITH</b> build <b>${STATUS_UP}</b> #${RUN_NUMBER} ${EMOJI}" \
             "" \
             "<b>Repository:</b> ${REPO_URL}" \
             "<b>Tag:</b> ${TAG}" \
@@ -284,7 +289,7 @@ jobs:
             "<b>Message:</b> ${COMMIT_MSG}" \
             "<b>Time:</b> ${COMMIT_TIME}" \
             "<b>Duration:</b> ${DURATION}" \
-            "<b>Build ${STATUS}:</b> Hosven ${TAG} · ${ARTIFACTS_LINE}${FILES_BLOCK}" \
+            "<b>Build ${STATUS}:</b> HostSmith ${TAG} · ${ARTIFACTS_LINE}${FILES_BLOCK}" \
             "" \
             "${BOTTOM_LINKS}")
 

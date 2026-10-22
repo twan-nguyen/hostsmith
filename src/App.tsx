@@ -2,11 +2,11 @@ import { listen } from "@tauri-apps/api/event";
 import { useEffect } from "react";
 
 import { CommandPalette } from "@/components/command-palette";
-import { Notice } from "@/components/notice";
 import { PaneRouter } from "@/components/pane-router";
 import { PendingSwitchDialog } from "@/components/pending-switch-dialog";
 import { Sidebar } from "@/components/sidebar";
-import { hostsRedo, hostsUndo, windowReady } from "@/lib/hosven";
+import { Toaster } from "@/components/toaster";
+import { hostsRedo, hostsUndo, windowReady } from "@/lib/hostsmith";
 import { overlayOpen } from "@/lib/overlay";
 import { parseSelection } from "@/lib/selection";
 import { useStore } from "@/store";
@@ -101,7 +101,7 @@ function App() {
       </div>
       <CommandPalette />
       <PendingSwitchDialog />
-      <Notice />
+      <Toaster />
     </>
   );
 }

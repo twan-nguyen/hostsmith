@@ -1,5 +1,5 @@
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { type EnvRepo, type Profile, envRemoveRepo, profilesRemove } from "@/lib/hosven";
+import { type Profile, profilesRemove } from "@/lib/hostsmith";
 import { useStore } from "@/store";
 
 /**
@@ -22,36 +22,6 @@ export function RemoveProfileDialog({ profile, onClose }: { profile: Profile | n
       description={`Xoá metadata của profile ${profile?.name}. Các entry trong /etc/hosts được giữ nguyên.`}
       confirmLabel="Xoá profile"
       onConfirm={() => profile && void remove(profile)}
-      onClose={onClose}
-    />
-  );
-}
-
-/** Asks before dropping a repo from the list; its files stay where they are. */
-export function RemoveRepoDialog({ repo, onClose }: { repo: EnvRepo | null; onClose: () => void }) {
-  function remove(target: EnvRepo) {
-    const { run, select, selection } = useStore.getState();
-    // Leave the repo's pane first, so the typing it hands over on the way out
-    // still lands in a repo that exists.
-    const open =
-      (selection.kind === "repo" && selection.id === target.id) ||
-      (selection.kind === "envFile" && selection.repo === target.id);
-    if (open) select({ kind: "systemHosts" });
-    void run(envRemoveRepo(target.id));
-  }
-
-  const saved = repo?.profiles.length ?? 0;
-  return (
-    <ConfirmDialog
-      open={repo !== null}
-      title="Xoá repo khỏi danh sách?"
-      description={
-        saved > 0
-          ? `Các file trong ${repo?.path} được giữ nguyên. ${saved} profile env đã lưu của repo sẽ bị xoá.`
-          : `Các file trong ${repo?.path} được giữ nguyên.`
-      }
-      confirmLabel="Xoá khỏi danh sách"
-      onConfirm={() => repo && remove(repo)}
       onClose={onClose}
     />
   );

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { ListeningPort } from "@/lib/hosven";
-import { abbreviateHome, joinPath } from "@/lib/paths";
+import type { ListeningPort } from "@/lib/hostsmith";
+import { abbreviateHome } from "@/lib/paths";
 import {
   attentionPort,
   filterPorts,
@@ -39,8 +39,8 @@ describe("filters", () => {
     expect(filterPorts(all, "user")).toEqual([yours, container, stranger]);
   });
 
-  it("narrows to repo ports and to system services", () => {
-    expect(filterPorts(all, "repos")).toEqual([yours]);
+  it("narrows to project ports and to system services", () => {
+    expect(filterPorts(all, "projects")).toEqual([yours]);
     expect(filterPorts(all, "system")).toEqual([system]);
   });
 
@@ -52,24 +52,23 @@ describe("filters", () => {
 
 describe("labels", () => {
   it("names each owner", () => {
-    expect(ownerLabel(yours.owner)).toBe("Của bạn");
-    expect(ownerLabel(container.owner)).toBe("Container");
+    expect(ownerLabel(yours.owner)).toBe("api");
+    expect(ownerLabel(container.owner)).toBe("db");
+    expect(ownerLabel({ kind: "container", name: null })).toBe("Container");
     expect(ownerLabel(stranger.owner)).toBe("Không rõ");
   });
 
   it("marks only unknown ports that need attention as danger", () => {
-    expect(ownerTone(yours)).toBe("ok");
-    expect(ownerTone(container)).toBe("idle");
-    expect(ownerTone(stranger)).toBe("danger");
-    expect(ownerTone(port({ owner: { kind: "unknown" }, needsAttention: false }))).toBe("idle");
+    expect(ownerTone(yours)).toBe("project");
+    expect(ownerTone(container)).toBe("container");
+    expect(ownerTone(stranger)).toBe("unknown");
   });
 
   it("describes the pid, the owner and the folder under home", () => {
     const home = "/Users/tuan";
-    expect(portDetail(yours, home)).toBe("pid 100 · api · ~/api");
-    expect(portDetail(container, home)).toBe("pid 100 · db · ~/api");
-    expect(portDetail(port({ owner: { kind: "container", name: null }, cwd: null }), home)).toBe("pid 100 · docker");
-    expect(portDetail(stranger, home)).toBe("pid 200 · tuan · ~/api");
+    expect(portDetail(yours, home)).toBe("pid 100 · ~/api");
+    expect(portDetail(port({ owner: { kind: "container", name: null }, cwd: null }), home)).toBe("pid 100 · tuan");
+    expect(portDetail(stranger, home)).toBe("pid 200 · ~/api");
     expect(portDetail(system, home)).toBe("pid 300 · tuan");
   });
 
@@ -83,7 +82,7 @@ describe("scan age", () => {
 
   it("says nothing before the first scan", () => {
     expect(scanAge(null, scannedAt)).toBeNull();
-    expect(portsSubtitle(all, null, scannedAt)).toBe("3 đang dùng");
+    expect(portsSubtitle(null, scannedAt)).toBe("");
   });
 
   it("says just now under five seconds, then counts seconds", () => {
@@ -102,21 +101,16 @@ describe("scan age", () => {
   });
 
   it("builds the subtitle from the non-system count", () => {
-    expect(portsSubtitle(all, scannedAt, scannedAt + 1_000)).toBe("3 đang dùng · quét vừa xong");
-    expect(portsSubtitle(all, scannedAt, scannedAt + 12_000)).toBe("3 đang dùng · quét 12 giây trước");
+    expect(portsSubtitle(scannedAt, scannedAt + 1_000)).toBe("Quét vừa xong");
+    expect(portsSubtitle(scannedAt, scannedAt + 12_000)).toBe("Quét 12 giây trước");
   });
 });
 
 describe("paths", () => {
   it("abbreviates the home folder only at a path boundary", () => {
-    expect(abbreviateHome("/Users/tuan/api/.env", "/Users/tuan")).toBe("~/api/.env");
+    expect(abbreviateHome("/Users/tuan/api/src", "/Users/tuan")).toBe("~/api/src");
     expect(abbreviateHome("/Users/tuan", "/Users/tuan/")).toBe("~");
     expect(abbreviateHome("/Users/tuanx/api", "/Users/tuan")).toBe("/Users/tuanx/api");
     expect(abbreviateHome("/opt/api", null)).toBe("/opt/api");
-  });
-
-  it("joins a folder and a file", () => {
-    expect(joinPath("/Users/tuan/api/", ".env")).toBe("/Users/tuan/api/.env");
-    expect(joinPath("/Users/tuan/api", ".env.local")).toBe("/Users/tuan/api/.env.local");
   });
 });

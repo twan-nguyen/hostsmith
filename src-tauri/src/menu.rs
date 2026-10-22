@@ -78,7 +78,7 @@ pub fn sync(app: &AppHandle, hosts: &Hosts) {
     let handle = app.clone();
     let posted = app.run_on_main_thread(move || {
         if let Err(error) = build(&handle, &shape).and_then(|menu| handle.set_menu(menu)) {
-            eprintln!("hosven: could not build the menu: {error}");
+            eprintln!("hostsmith: could not build the menu: {error}");
             // Lets the next change try again.
             if let Some(state) = handle.try_state::<MenuState>() {
                 *lock(&state.0) = None;
@@ -86,7 +86,7 @@ pub fn sync(app: &AppHandle, hosts: &Hosts) {
         }
     });
     if let Err(error) = posted {
-        eprintln!("hosven: could not schedule the menu: {error}");
+        eprintln!("hostsmith: could not schedule the menu: {error}");
     }
 }
 
@@ -100,24 +100,24 @@ fn build(app: &AppHandle, shape: &Shape) -> tauri::Result<Menu<Wry>> {
     };
 
     let about = AboutMetadata {
-        name: Some("Hosven".into()),
+        name: Some("HostSmith".into()),
         version: Some(app.package_info().version.to_string()),
         website: Some(HOMEPAGE.into()),
         ..Default::default()
     };
-    let app_menu = SubmenuBuilder::new(app, "Hosven")
-        .about_with_text("Giới thiệu Hosven", Some(about))
+    let app_menu = SubmenuBuilder::new(app, "HostSmith")
+        .about_with_text("Giới thiệu HostSmith", Some(about))
         .item(&item("check-updates", "Kiểm tra cập nhật…", None)?)
         .item(&item("feedback", "Gửi phản hồi", None)?)
         .item(&item("homepage", "Trang chủ dự án", None)?)
         .separator()
         .item(&item("settings", "Cài đặt…", Some("CmdOrCtrl+,"))?)
         .separator()
-        .hide_with_text("Ẩn Hosven")
+        .hide_with_text("Ẩn HostSmith")
         .hide_others_with_text("Ẩn ứng dụng khác")
         .show_all_with_text("Hiện tất cả")
         .separator()
-        .quit_with_text("Thoát Hosven")
+        .quit_with_text("Thoát HostSmith")
         .build()?;
 
     let edit = SubmenuBuilder::new(app, "Sửa")
@@ -219,14 +219,14 @@ pub fn show_main(app: &AppHandle) {
 
 fn open(app: &AppHandle, url: &str) {
     if let Err(error) = app.opener().open_url(url, None::<&str>) {
-        eprintln!("hosven: could not open {url}: {error}");
+        eprintln!("hostsmith: could not open {url}: {error}");
     }
 }
 
 /// A new GitHub issue with the version filled in, as Hosven 1.x opened it.
 fn feedback_url(version: &str) -> String {
     let body = format!(
-        "## Feedback\n\n\n---\nHosven {version}\nmacOS {}\n",
+        "## Feedback\n\n\n---\nHostSmith {version}\nmacOS {}\n",
         macos_version()
     );
     format!(
@@ -273,6 +273,6 @@ mod tests {
         assert!(url.starts_with(
             "https://github.com/twan-nguyen/hosven/issues/new?title=Feedback%3A%20&body="
         ));
-        assert!(url.contains("Hosven%202.0.0"));
+        assert!(url.contains("HostSmith%202.0.0"));
     }
 }

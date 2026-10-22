@@ -5,9 +5,7 @@ use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_window_state::StateFlags;
 
 mod config;
-mod env;
 mod external_tools;
-mod git_exposure;
 mod hosts;
 mod hosts_writer;
 mod menu;
@@ -24,7 +22,6 @@ mod watcher;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_positioner::init())
         .plugin(
@@ -40,6 +37,7 @@ pub fn run() {
         .on_menu_event(menu::handle)
         .on_window_event(tray::on_window_event)
         .setup(|app| {
+            config::carry_over_old_config();
             let settings = settings::SettingsState::load();
             settings::apply(app.handle(), &settings.get())?;
             let show_tray = settings.get().show_menu_bar_extra;
@@ -54,14 +52,13 @@ pub fn run() {
             });
             app.manage(hosts::HostsState::load());
             menu::sync(app.handle(), &app.state::<hosts::HostsState>().lock());
-            app.manage(env::EnvState::load());
             tray::set_enabled(app.handle(), show_tray);
             listen_for_links(app.handle());
             match hosts::watch(app.handle()) {
                 Ok(watch) => {
                     app.manage(watch);
                 }
-                Err(error) => eprintln!("hosven: not watching the hosts file: {error}"),
+                Err(error) => eprintln!("hostsmith: not watching the hosts file: {error}"),
             }
             Ok(())
         })
@@ -83,7 +80,6 @@ pub fn run() {
             hosts::hosts_switch_environment,
             hosts::hosts_confirm_pending_switch,
             hosts::hosts_cancel_pending_switch,
-            hosts::hosts_switch_preview,
             hosts::hosts_dismiss_verification,
             hosts::hosts_backup,
             hosts::profiles_add,
@@ -107,33 +103,6 @@ pub fn run() {
             external_tools::tools_open_in_editor,
             external_tools::tools_reveal_in_finder,
             external_tools::tools_open_chrome_dns,
-            git_exposure::git_exposure,
-            git_exposure::git_add_to_gitignore,
-            env::env_snapshot,
-            env::env_add_repo,
-            env::env_remove_repo,
-            env::env_rename_repo,
-            env::env_select,
-            env::env_discover,
-            env::env_add_entry,
-            env::env_update_entry,
-            env::env_duplicate_entry,
-            env::env_toggle_entry,
-            env::env_delete_entry,
-            env::env_select_variant,
-            env::env_add_missing,
-            env::env_discard,
-            env::env_set_raw_draft,
-            env::env_merge_raw_draft,
-            env::env_apply,
-            env::env_apply_raw,
-            env::env_reload_from_disk,
-            env::env_refresh_from_disk,
-            env::env_dismiss_conflict,
-            env::env_profile_save,
-            env::env_profile_apply,
-            env::env_profile_rename,
-            env::env_profile_delete,
             url_command::window_ready,
         ])
         .build(tauri::generate_context!())
@@ -156,7 +125,7 @@ pub fn run() {
         });
 }
 
-/// Routes `hosven://` links to the app. Setup runs before the event loop,
+/// Routes `hostsmith://` links to the app. Setup runs before the event loop,
 /// so on macOS a link that launched the app arrives later through the
 /// listener; `get_current` covers the platforms that pass it as an argument,
 /// which the listener never sees. Neither path repeats the other.

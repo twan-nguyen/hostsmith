@@ -1,4 +1,4 @@
-import type { Check, HostEntry, HostsSnapshot, Profile, SwitchPreview } from "@/lib/hosven";
+import type { Check, HostEntry, HostsSnapshot, Profile } from "@/lib/hostsmith";
 
 // MARK: - Profiles
 
@@ -18,51 +18,7 @@ export function profileStats(hosts: HostsSnapshot | null) {
   });
 }
 
-// MARK: - Banner slot
-
-// A fresh toast takes the slot before any of these; the pane banner sees to that.
-
-/** What the hosts pane's banner slot shows, most urgent first. */
-export type HostsBanner = "conflict" | "loadError" | "externalChange" | "verification";
-
-export function hostsBanner(hosts: HostsSnapshot | null): HostsBanner | null {
-  if (!hosts) return null;
-  if (hosts.active.kind === "conflict") return "conflict";
-  if (hosts.loadError) return "loadError";
-  if (hosts.externalChange) return "externalChange";
-  if (hosts.verification && hosts.verification.results.length > 0) {
-    // A clean result only matters while what it checked is still what is on disk.
-    const mismatched = hosts.verification.results.some((r) => !r.matches);
-    if (mismatched || !hosts.dirty) return "verification";
-  }
-  return null;
-}
-
-/**
- * What the profile pane's banner slot shows. Pending edits and the on state
- * already show in the header, so only a conflict and what activating would
- * do take the slot.
- */
-export type ProfileBanner = "conflict" | "activation";
-
-export function profileBanner({
-  hosts,
-  profile,
-  entryCount,
-  active,
-}: {
-  hosts: HostsSnapshot | null;
-  profile: Profile;
-  entryCount: number;
-  active: boolean;
-}): ProfileBanner | null {
-  if (!hosts || !profile.isExclusive) return null;
-  if (hosts.active.kind === "conflict") return "conflict";
-  if (!hosts.dirty && !active && entryCount > 0) return "activation";
-  return null;
-}
-
-// MARK: - Banner text
+// MARK: - Resolver check
 
 /** How many shown before the rest collapse into "…". */
 const MISMATCH_LINES = 4;
@@ -91,20 +47,10 @@ export function verificationSummary(results: Check[]): VerificationSummary {
   };
 }
 
-/** "Kích hoạt sẽ bật 2 entry của Staging, tắt 3 entry của Local và ghi vào /etc/hosts" */
-export function activationSummary(name: string, preview: SwitchPreview): string {
-  const parts: string[] = [];
-  if (preview.enable > 0) parts.push(`bật ${preview.enable} entry của ${name}`);
-  for (const [other, count] of preview.disable) parts.push(`tắt ${count} entry của ${other}`);
-  if (parts.length === 0) return `Kích hoạt sẽ đánh dấu ${name} là môi trường đang bật`;
-  return `Kích hoạt sẽ ${parts.join(", ")} và ghi vào /etc/hosts`;
-}
-
-/** "Môi trường · 3 entry · ⌘2"; the shortcut belongs to environments only. */
-export function profileSubtitle(profile: Profile, entryCount: number): string {
+/** "Môi trường · 3 entry · 2 bật". */
+export function profileSubtitle(profile: Profile, entryCount: number, enabledCount: number): string {
   const parts = [profile.isExclusive ? "Môi trường" : "Block", `${entryCount} entry`];
-  const n = profile.shortcutNumber;
-  if (profile.isExclusive && n !== undefined && n >= 1 && n <= 9) parts.push(`⌘${n}`);
+  if (entryCount > 0) parts.push(`${enabledCount} bật`);
   return parts.join(" · ");
 }
 
