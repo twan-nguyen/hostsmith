@@ -12,7 +12,7 @@ import {
 import { errorMessage } from "@/lib/utils";
 
 /**
- * A dialog around a form: "Huỷ" and a submit button. Submitting waits for
+ * A dialog around a form: "Cancel" and a submit button. Submitting waits for
  * `onSubmit`, closes when it succeeds and shows its error otherwise.
  * `onSubmit` returns `false` to stay open without an error of its own, when
  * it flagged a field instead.
@@ -80,7 +80,7 @@ export function FormDialog({
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
-              Huỷ
+              Cancel
             </Button>
             <Button type="submit" disabled={!canSubmit || busy} data-testid={submitTestId}>
               {submitLabel}

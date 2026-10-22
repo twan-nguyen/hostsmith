@@ -85,9 +85,9 @@ pub fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), Str
 /// readable by its owner only: nothing else on the machine has a reason to
 /// read the user's setup.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let dir = path.parent().ok_or("Đường dẫn không hợp lệ")?;
+    let dir = path.parent().ok_or("Invalid path")?;
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    let name = path.file_name().ok_or("Đường dẫn không hợp lệ")?;
+    let name = path.file_name().ok_or("Invalid path")?;
     let tmp = dir.join(format!(
         ".{}.{}.tmp",
         name.to_string_lossy(),

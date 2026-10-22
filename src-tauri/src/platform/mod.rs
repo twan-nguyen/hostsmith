@@ -30,14 +30,14 @@ pub enum RunOutcome {
 }
 
 impl RunOutcome {
-    /// Why the run did not do its work, in Vietnamese. `None` when it did, or
+    /// Why the run did not do its work. `None` when it did, or
     /// when the prompt was dismissed, which the user knows about already.
     pub fn failure(&self) -> Option<String> {
         match self {
             Self::Ok | Self::Cancelled => None,
-            Self::Denied(code) => Some(format!("quyền quản trị bị từ chối (mã {code})")),
+            Self::Denied(code) => Some(format!("admin rights were denied (code {code})")),
             Self::Failed { exit, stderr } => Some(match stderr.trim() {
-                "" => format!("lệnh thoát với mã {exit}"),
+                "" => format!("the command exited with code {exit}"),
                 output => output.to_string(),
             }),
         }
@@ -83,7 +83,7 @@ mod tests {
         assert_eq!(RunOutcome::Cancelled.failure(), None);
         assert_eq!(
             RunOutcome::Denied(-60005).failure().as_deref(),
-            Some("quyền quản trị bị từ chối (mã -60005)")
+            Some("admin rights were denied (code -60005)")
         );
         let failed = |stderr: &str| RunOutcome::Failed {
             exit: 1,
@@ -97,7 +97,7 @@ mod tests {
         );
         assert_eq!(
             failed("\n").failure().as_deref(),
-            Some("lệnh thoát với mã 1")
+            Some("the command exited with code 1")
         );
     }
 }

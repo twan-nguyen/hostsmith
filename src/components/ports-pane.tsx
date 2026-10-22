@@ -49,7 +49,7 @@ const TONE: Record<OwnerTone, StatusTone> = { project: "on", container: "muted",
 type PendingStop = { port: ListeningPort; force: boolean; afterTerm: boolean };
 
 /**
- * "Quét N giây trước". It ticks every second on its own, so
+ * "Scanned N sec ago". It ticks every second on its own, so
  * the rows under it do not render again with it.
  */
 function PortsSubtitle({ scannedAt }: { scannedAt: number | null }) {
@@ -147,26 +147,26 @@ export function PortsPane() {
         <span className="text-muted-foreground [&_svg]:size-4">
           <Cable />
         </span>
-        <h1 className="shrink-0 font-medium">Cổng</h1>
+        <h1 className="shrink-0 font-medium">Ports</h1>
         <span className="text-muted-foreground tabular-nums">{visible.length}</span>
         <div className="ml-auto flex min-w-0 items-center gap-3">
           <PortsSubtitle scannedAt={snapshot?.scannedAt ?? null} />
         </div>
         <SegmentedControl
-          label="Lọc cổng"
+          label="Filter ports"
           value={portsFilter}
           onChange={setPortsFilter}
           options={[
-            { value: "projects", label: "Dự án", testId: "ports-filter-projects" },
-            { value: "user", label: "Người dùng", testId: "ports-filter-user" },
-            { value: "system", label: "Hệ thống", testId: "ports-filter-system" },
+            { value: "projects", label: "Projects", testId: "ports-filter-projects" },
+            { value: "user", label: "User", testId: "ports-filter-user" },
+            { value: "system", label: "System", testId: "ports-filter-system" },
           ]}
         />
         <Button
           size="icon-sm"
           variant="ghost"
-          aria-label="Quét lại"
-          title="Quét lại (⌘R)"
+          aria-label="Rescan"
+          title="Rescan (⌘R)"
           data-testid="ports-rescan"
           disabled={isScanning}
           onClick={() => void scan()}
@@ -179,15 +179,15 @@ export function PortsPane() {
       <div className="min-h-0 flex-1 overflow-auto">
         {visible.length === 0 ? (
           <PaneEmpty
-            title={isScanning ? "Đang quét" : "Không có cổng nào đang lắng nghe"}
+            title={isScanning ? "Scanning" : "No ports are listening"}
             detail={
               portsFilter === "projects"
-                ? "Không có tiến trình nào chạy từ một dự án git đang giữ cổng."
-                : "HostSmith liệt kê các cổng đang bị chiếm, không liệt kê cổng trống."
+                ? "No process started from a git project holds a port."
+                : "HostSmith lists the ports in use, not the free ones."
             }
           >
             <Button variant="outline" disabled={isScanning} onClick={() => void scan()}>
-              Quét lại
+              Rescan
             </Button>
           </PaneEmpty>
         ) : (
@@ -196,10 +196,10 @@ export function PortsPane() {
               className="sticky top-0 z-10 grid h-8 items-center gap-4 border-b border-border bg-card px-5 text-xs text-muted-foreground"
               style={GRID}
             >
-              <span>Cổng</span>
-              <span>Tiến trình</span>
-              <span>Thuộc về</span>
-              <span aria-label="Thao tác" />
+              <span>Port</span>
+              <span>Process</span>
+              <span>Owner</span>
+              <span aria-label="Actions" />
             </div>
             {visible.map((port) => {
               const cwd = meaningfulCwd(port);
@@ -229,7 +229,7 @@ export function PortsPane() {
                       </span>
                       <span
                         className={cn("flex min-w-0 items-center gap-2", tone !== "project" && "text-muted-foreground")}
-                        title={tone === "container" ? "Container" : tone === "project" ? "Dự án git" : undefined}
+                        title={tone === "container" ? "Container" : tone === "project" ? "Git project" : undefined}
                       >
                         <StatusIcon tone={TONE[tone]} />
                         <span className="truncate">{ownerLabel(port.owner)}</span>
@@ -244,7 +244,7 @@ export function PortsPane() {
                         {port.owner.kind === "yours" && (
                           <>
                             <Button size="xs" variant="outline" onClick={() => openLocalhost(port)}>
-                              Mở
+                              Open
                             </Button>
                             <Button
                               size="xs"
@@ -252,7 +252,7 @@ export function PortsPane() {
                               disabled={rowBusy}
                               onClick={() => setPending({ port, force: false, afterTerm: false })}
                             >
-                              Dừng
+                              Stop
                             </Button>
                           </>
                         )}
@@ -261,14 +261,14 @@ export function PortsPane() {
                             size="xs"
                             variant="outline"
                             disabled={rowBusy || !port.owner.name}
-                            title={port.owner.name ? `docker stop ${port.owner.name}` : "Không rõ tên container"}
+                            title={port.owner.name ? `docker stop ${port.owner.name}` : "Unknown container name"}
                             onClick={() => {
                               if (port.owner.kind === "container" && port.owner.name) {
                                 void stopContainer(port, port.owner.name);
                               }
                             }}
                           >
-                            Dừng
+                            Stop
                           </Button>
                         )}
                         {port.owner.kind === "unknown" && (
@@ -278,27 +278,27 @@ export function PortsPane() {
                             disabled={rowBusy}
                             onClick={() => setPending({ port, force: false, afterTerm: false })}
                           >
-                            Dừng
+                            Stop
                           </Button>
                         )}
                       </span>
                     </div>
                   </ContextMenuTrigger>
                   <ContextMenuContent>
-                    <ContextMenuItem onSelect={() => openLocalhost(port)}>Mở localhost:{port.port}</ContextMenuItem>
+                    <ContextMenuItem onSelect={() => openLocalhost(port)}>Open localhost:{port.port}</ContextMenuItem>
                     {cwd && (
                       <>
                         <ContextMenuItem onSelect={() => void run(toolsRevealInFinder(cwd))}>
-                          Hiện thư mục trong Finder
+                          Reveal folder in Finder
                         </ContextMenuItem>
                         {tools?.terminal && (
                           <ContextMenuItem onSelect={() => void run(toolsOpenInTerminal(cwd))}>
-                            Mở thư mục trong {tools.terminal.name}
+                            Open folder in {tools.terminal.name}
                           </ContextMenuItem>
                         )}
                         {tools?.editor && (
                           <ContextMenuItem onSelect={() => void run(toolsOpenInEditor(cwd))}>
-                            Mở thư mục bằng {tools.editor.name}
+                            Open folder in {tools.editor.name}
                           </ContextMenuItem>
                         )}
                       </>
@@ -309,7 +309,7 @@ export function PortsPane() {
                       disabled={rowBusy}
                       onSelect={() => setPending({ port, force: true, afterTerm: false })}
                     >
-                      Buộc dừng (SIGKILL)
+                      Force stop (SIGKILL)
                     </ContextMenuItem>
                   </ContextMenuContent>
                 </ContextMenu>
@@ -321,26 +321,26 @@ export function PortsPane() {
 
       <ConfirmDialog
         open={pending !== null}
-        title={pending?.force ? "Buộc dừng tiến trình?" : "Dừng tiến trình?"}
+        title={pending?.force ? "Force stop process?" : "Stop process?"}
         description={
           pending && (
             <span className="flex flex-col gap-2">
               <span className="font-mono text-xs text-foreground">
-                {pending.port.process} (pid {pending.port.pid}) · cổng {pending.port.port}
+                {pending.port.process} (pid {pending.port.pid}) · port {pending.port.port}
               </span>
               <span>
                 {pending.force
                   ? pending.afterTerm
-                    ? "Tiến trình vẫn chạy sau SIGTERM. SIGKILL dừng nó ngay và không cho nó lưu gì cả."
-                    : "SIGKILL dừng tiến trình ngay và không cho nó lưu gì cả."
+                    ? "The process is still running after SIGTERM. SIGKILL stops it at once and lets it save nothing."
+                    : "SIGKILL stops the process at once and lets it save nothing."
                   : pending.port.owner.kind === "yours"
-                    ? `Tiến trình của dự án ${pending.port.owner.name} nhận SIGTERM để tự dừng.`
-                    : "HostSmith không biết tiến trình này thuộc dự án nào. Nó nhận SIGTERM và có thể mất dữ liệu chưa lưu."}
+                    ? `The process of project ${pending.port.owner.name} gets SIGTERM so it can stop on its own.`
+                    : "HostSmith does not know which project this process belongs to. It gets SIGTERM and may lose unsaved data."}
               </span>
             </span>
           )
         }
-        confirmLabel={pending?.force ? "Buộc dừng" : "Dừng tiến trình"}
+        confirmLabel={pending?.force ? "Force stop" : "Stop process"}
         onConfirm={() => pending && void stop(pending.port, pending.force)}
         onClose={() => setPending(null)}
       />

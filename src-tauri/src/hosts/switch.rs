@@ -131,9 +131,9 @@ impl Hosts {
         }
 
         let toast = match (&target_profile, self.active_profile()) {
-            (Some(target), _) => format!("Đã chuyển sang {}", target.name),
-            (None, Some(previous)) => format!("Đã tắt {}", previous.name),
-            (None, None) => "Đã tắt các môi trường".to_string(),
+            (Some(target), _) => format!("Switched to {}", target.name),
+            (None, Some(previous)) => format!("Deactivated {}", previous.name),
+            (None, None) => "Deactivated all environments".to_string(),
         };
         let before = std::mem::replace(&mut self.entries, updated);
         Step::Write(self.begin_switch_write(before, toast))
@@ -264,7 +264,7 @@ mod tests {
         assert!(!h.dirty());
         assert!(writes.contents[0].contains("10.0.0.5\tapi.test"));
         assert!(writes.contents[0].contains("# 127.0.0.1\tapi.test"));
-        assert_eq!(h.toast().unwrap().message, "Đã chuyển sang Staging");
+        assert_eq!(h.toast().unwrap().message, "Switched to Staging");
     }
 
     #[test]
@@ -275,7 +275,7 @@ mod tests {
         assert_eq!(writes.run(&mut h, step), Outcome::Written);
         assert_eq!(h.active_state(), ActiveState::None);
         assert_eq!(enabled(&h, "Docker"), [true]);
-        assert_eq!(h.toast().unwrap().message, "Đã tắt Local");
+        assert_eq!(h.toast().unwrap().message, "Deactivated Local");
     }
 
     #[test]
@@ -374,7 +374,7 @@ mod tests {
     #[test]
     fn a_failed_write_reports_and_puts_the_entries_back() {
         let mut h = make(FIXTURE);
-        let message = "quyền quản trị bị từ chối (mã 1)".to_string();
+        let message = "admin rights were denied (code 1)".to_string();
         let mut writes = Writes {
             contents: Vec::new(),
             answer: RunOutcome::Denied(1),

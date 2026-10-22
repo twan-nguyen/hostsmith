@@ -10,9 +10,9 @@ import { cn } from "@/lib/utils";
 import { useStore } from "@/store";
 
 const MODES: { mode: AppearanceMode; label: string }[] = [
-  { mode: "system", label: "Theo hệ thống" },
-  { mode: "light", label: "Sáng" },
-  { mode: "dark", label: "Tối" },
+  { mode: "system", label: "System" },
+  { mode: "light", label: "Light" },
+  { mode: "dark", label: "Dark" },
 ];
 
 export function SettingsView() {
@@ -49,12 +49,12 @@ export function SettingsView() {
       <div className="flex min-h-0 flex-1 justify-center overflow-y-auto px-8 py-10">
         <div className="flex w-full max-w-xl flex-col gap-6">
           <div className="flex flex-col gap-1.5">
-            <h2 className="text-xl font-semibold">Cài đặt</h2>
-            <p className="text-muted-foreground">Giao diện, trình soạn thảo và menu bar.</p>
+            <h2 className="text-xl font-semibold">Settings</h2>
+            <p className="text-muted-foreground">Appearance, editor and menu bar.</p>
           </div>
 
-          <Group title="Giao diện">
-            <Row label="Chế độ">
+          <Group title="Appearance">
+            <Row label="Mode">
               <div className="flex rounded-lg bg-muted p-0.5">
                 {MODES.map(({ mode, label }) => (
                   <button
@@ -77,14 +77,14 @@ export function SettingsView() {
               <div className="flex items-start justify-between gap-6">
                 <div className="flex flex-col gap-1">
                   <span id={ids.transparency} className="font-medium">
-                    Độ trong suốt
+                    Transparency
                   </span>
                   <span className="text-muted-foreground">
-                    Để nền phía sau cửa sổ hiện mờ qua thanh bên. Các pane vẫn giữ nền đặc để dễ đọc.
+                    Lets the desktop behind the window show blurred through the sidebar. Panes keep a solid background so they stay easy to read.
                   </span>
                 </div>
                 <span className="w-10 shrink-0 text-right font-medium tabular-nums">
-                  {transparency === 0 ? "Tắt" : `${transparency}%`}
+                  {transparency === 0 ? "Off" : `${transparency}%`}
                 </span>
               </div>
               <Slider
@@ -99,13 +99,13 @@ export function SettingsView() {
             </div>
           </Group>
 
-          <Group title="Trình soạn thảo">
-            <Row label="Cỡ chữ" hint="Cỡ chữ của trình soạn thảo hosts, độc lập với cỡ chữ hệ thống.">
+          <Group title="Editor">
+            <Row label="Font size" hint="The hosts editor's font size, independent of the system's.">
               <div className="flex items-center gap-2">
                 <Button
                   size="icon-sm"
                   variant="outline"
-                  aria-label="Giảm cỡ chữ"
+                  aria-label="Decrease font size"
                   disabled={settings.editorFontSize <= 10}
                   onClick={() => update({ editorFontSize: settings.editorFontSize - 1 })}
                 >
@@ -115,7 +115,7 @@ export function SettingsView() {
                 <Button
                   size="icon-sm"
                   variant="outline"
-                  aria-label="Tăng cỡ chữ"
+                  aria-label="Increase font size"
                   disabled={settings.editorFontSize >= 20}
                   onClick={() => update({ editorFontSize: settings.editorFontSize + 1 })}
                 >
@@ -127,9 +127,9 @@ export function SettingsView() {
 
           <Group title="Menu bar">
             <Row
-              label="Hiện ở menu bar"
+              label="Show in menu bar"
               labelFor={ids.menuBar}
-              hint="Bật tắt block và kích hoạt profile từ menu bar mà không cần mở cửa sổ."
+              hint="Switch environments and turn blocks on and off from the menu bar without opening the window."
             >
               <Switch
                 id={ids.menuBar}
@@ -139,7 +139,7 @@ export function SettingsView() {
             </Row>
           </Group>
 
-          <Group title="Hệ thống">
+          <Group title="About">
             <p className="text-muted-foreground">HostSmith {version}</p>
           </Group>
         </div>

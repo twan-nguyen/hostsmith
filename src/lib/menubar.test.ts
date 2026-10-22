@@ -78,9 +78,9 @@ const port = (overrides: Partial<ListeningPort>): ListeningPort => ({
 describe("menu bar panel", () => {
   it("titles the card after the active environment", () => {
     expect(activeTitle(snapshot()).title).toBe("Local");
-    expect(activeTitle(snapshot({ active: { kind: "none" } })).title).toBe("Không có môi trường");
+    expect(activeTitle(snapshot({ active: { kind: "none" } })).title).toBe("No environment");
     expect(activeTitle(snapshot({ active: { kind: "conflict", ids: ["local", "staging"] } })).title).toBe(
-      "Nhiều môi trường đang bật",
+      "Several environments active",
     );
     expect(activeTitle(null).profile).toBeNull();
   });
@@ -100,7 +100,7 @@ describe("menu bar panel", () => {
   it("lists blocks with entries and their mapping", () => {
     expect(blockRows(snapshot()).map((r) => [r.profile.name, r.mapping, r.on])).toEqual([
       ["Docker", "127.0.0.1 → db.test", false],
-      ["Mocks", "2 entry", true],
+      ["Mocks", "2 entries", true],
     ]);
   });
 
@@ -112,16 +112,19 @@ describe("menu bar panel", () => {
       port({ id: "d", needsAttention: true }),
     ];
     const shown = userPorts({ ports, scannedAt: null, scanning: false, toast: null });
-    expect(shown.map(portTrailing)).toEqual(["api", "docker", "Xem"]);
-    expect(portTitle(ports[3])).toBe("3000  node · không rõ");
+    expect(shown.map(portTrailing)).toEqual(["api", "docker", "View"]);
+    expect(portTitle(ports[3])).toBe("3000  node · unknown");
     expect(portTrailing(port({}))).toBe("me");
   });
 
   it("explains a switch that did not write", () => {
     expect(outcomeMessage({ kind: "refused", value: 2 })).toBe(
-      "Có 2 thay đổi chưa áp dụng trong HostSmith. Mở HostSmith để áp dụng hoặc huỷ trước.",
+      "HostSmith has 2 unapplied changes. Open HostSmith to apply or discard them first.",
     );
-    expect(outcomeMessage({ kind: "failed", value: "denied" })).toBe("Không ghi được /etc/hosts: denied");
+    expect(outcomeMessage({ kind: "refused", value: 1 })).toBe(
+      "HostSmith has 1 unapplied change. Open HostSmith to apply or discard it first.",
+    );
+    expect(outcomeMessage({ kind: "failed", value: "denied" })).toBe("Could not write /etc/hosts: denied");
     expect(outcomeMessage({ kind: "written" })).toBeNull();
     expect(outcomeMessage({ kind: "cancelled" })).toBeNull();
   });

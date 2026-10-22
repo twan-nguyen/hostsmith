@@ -86,9 +86,9 @@ export function CommandPalette() {
   return (
     <CommandDialog open={paletteOpen} onOpenChange={setPaletteOpen}>
       <Command shouldFilter={false} loop>
-        <CommandInput value={query} onValueChange={setQuery} placeholder="Tìm host hoặc lệnh" />
+        <CommandInput value={query} onValueChange={setQuery} placeholder="Search hosts or commands" />
         <CommandList>
-          <CommandEmpty>Không có kết quả</CommandEmpty>
+          <CommandEmpty>No results</CommandEmpty>
           {sections.map((section) => (
             <CommandGroup key={section.category} heading={section.title}>
               {section.items.map((command) => (

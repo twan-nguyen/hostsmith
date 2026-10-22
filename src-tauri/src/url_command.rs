@@ -95,17 +95,19 @@ fn find_profile<'a>(profiles: &'a [Profile], name: &str) -> Option<&'a Profile> 
 /// The profile's id comes back even for a block, so its pane can be shown.
 fn resolve_activate(profiles: &[Profile], name: &str) -> (Option<Uuid>, Result<Uuid, String>) {
     match find_profile(profiles, name) {
-        None => (None, Err(format!("Không có profile tên {name}"))),
+        None => (None, Err(format!("No profile named {name}"))),
         Some(p) if !p.is_exclusive => (
             Some(p.id),
-            Err(format!("{} là block, không phải môi trường", p.name)),
+            Err(format!("{} is a block, not an environment", p.name)),
         ),
         Some(p) => (Some(p.id), Ok(p.id)),
     }
 }
 
 fn refused_message(count: usize) -> String {
-    format!("Có {count} thay đổi chưa áp dụng. Áp dụng hoặc huỷ chúng trước khi đổi môi trường.")
+    let pending = crate::util::counted(count, "unapplied change", "unapplied changes");
+    let them = if count == 1 { "it" } else { "them" };
+    format!("You have {pending}. Apply or cancel {them} before switching environments.")
 }
 
 /// Switches as a link may: pending edits refuse the switch with a toast.
@@ -187,7 +189,7 @@ async fn run(app: &AppHandle, url: &str) {
             hosts::run(app.clone(), step).await;
         }
         UrlCommand::Ports => navigate(app, "ports").await,
-        UrlCommand::Unknown(url) => hosts_error(app, format!("Không hiểu lệnh {url}")),
+        UrlCommand::Unknown(url) => hosts_error(app, format!("Unrecognized command {url}")),
     }
 }
 
@@ -242,7 +244,7 @@ mod tests {
         );
         assert_eq!(
             UrlCommand::parse("hostsmith://activate/m%E1%BB%99t%2Fhai"),
-            UrlCommand::Activate("một/hai".into())
+            UrlCommand::Activate("m\u{1ed9}t/hai".into())
         );
         // Escapes that are not hex, or not UTF-8, stay as they arrived.
         assert_eq!(percent_decode("100%"), "100%");
@@ -327,7 +329,7 @@ mod tests {
         let tools = id(&hosts, "Tools");
         let (shown, step) = begin_activate(&mut hosts, "Tools");
         assert_eq!(shown, Some(tools));
-        let message = "Tools là block, không phải môi trường".to_string();
+        let message = "Tools is a block, not an environment".to_string();
         assert!(matches!(step, Step::Done(Outcome::Failed(m)) if m == message));
         assert_eq!(toast(&hosts), Some(message));
     }
@@ -338,7 +340,7 @@ mod tests {
         let (shown, step) = begin_activate(&mut hosts, "Prod");
         assert_eq!(shown, None);
         assert!(matches!(step, Step::Done(Outcome::Failed(_))));
-        assert_eq!(toast(&hosts).as_deref(), Some("Không có profile tên Prod"));
+        assert_eq!(toast(&hosts).as_deref(), Some("No profile named Prod"));
     }
 
     #[test]

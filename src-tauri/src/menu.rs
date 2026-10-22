@@ -1,4 +1,4 @@
-//! The native menu bar. The Profile menu lists the environments with ⌘1–⌘9,
+//! The native menu bar. The Profile menu lists the environments with ⌘1-⌘9,
 //! so it is rebuilt whenever the list of environments changes.
 //!
 //! Undo and redo are custom items rather than the predefined ones: the
@@ -106,36 +106,36 @@ fn build(app: &AppHandle, shape: &Shape) -> tauri::Result<Menu<Wry>> {
         ..Default::default()
     };
     let app_menu = SubmenuBuilder::new(app, "HostSmith")
-        .about_with_text("Giới thiệu HostSmith", Some(about))
-        .item(&item("check-updates", "Kiểm tra cập nhật…", None)?)
-        .item(&item("feedback", "Gửi phản hồi", None)?)
-        .item(&item("homepage", "Trang chủ dự án", None)?)
+        .about_with_text("About HostSmith", Some(about))
+        .item(&item("check-updates", "Check for Updates…", None)?)
+        .item(&item("feedback", "Send Feedback", None)?)
+        .item(&item("homepage", "Project Homepage", None)?)
         .separator()
-        .item(&item("settings", "Cài đặt…", Some("CmdOrCtrl+,"))?)
+        .item(&item("settings", "Settings…", Some("CmdOrCtrl+,"))?)
         .separator()
-        .hide_with_text("Ẩn HostSmith")
-        .hide_others_with_text("Ẩn ứng dụng khác")
-        .show_all_with_text("Hiện tất cả")
+        .hide_with_text("Hide HostSmith")
+        .hide_others_with_text("Hide Others")
+        .show_all_with_text("Show All")
         .separator()
-        .quit_with_text("Thoát HostSmith")
+        .quit_with_text("Quit HostSmith")
         .build()?;
 
-    let edit = SubmenuBuilder::new(app, "Sửa")
-        .item(&item("undo", "Hoàn tác", Some("CmdOrCtrl+Z"))?)
-        .item(&item("redo", "Làm lại", Some("CmdOrCtrl+Shift+Z"))?)
+    let edit = SubmenuBuilder::new(app, "Edit")
+        .item(&item("undo", "Undo", Some("CmdOrCtrl+Z"))?)
+        .item(&item("redo", "Redo", Some("CmdOrCtrl+Shift+Z"))?)
         .separator()
-        .cut_with_text("Cắt")
-        .copy_with_text("Sao chép")
-        .paste_with_text("Dán")
-        .select_all_with_text("Chọn tất cả")
+        .cut_with_text("Cut")
+        .copy_with_text("Copy")
+        .paste_with_text("Paste")
+        .select_all_with_text("Select All")
         .separator()
-        .item(&item("find", "Tìm kiếm", Some("CmdOrCtrl+F"))?)
+        .item(&item("find", "Find", Some("CmdOrCtrl+F"))?)
         .build()?;
 
-    let view = SubmenuBuilder::new(app, "Hiển thị")
+    let view = SubmenuBuilder::new(app, "View")
         .item(&item(
             "toggle-sidebar",
-            "Ẩn hoặc hiện thanh bên",
+            "Toggle Sidebar",
             Some("Ctrl+CmdOrCtrl+S"),
         )?)
         .build()?;
@@ -145,7 +145,7 @@ fn build(app: &AppHandle, shape: &Shape) -> tauri::Result<Menu<Wry>> {
         let accelerator = env.shortcut.map(|n| format!("CmdOrCtrl+{n}"));
         let entry = MenuItemBuilder::with_id(
             format!("switch:{}", env.id),
-            format!("Chuyển sang {}", env.name),
+            format!("Switch to {}", env.name),
         )
         .enabled(env.has_entries);
         let entry = match accelerator {
@@ -157,17 +157,17 @@ fn build(app: &AppHandle, shape: &Shape) -> tauri::Result<Menu<Wry>> {
     if !shape.environments.is_empty() {
         profile = profile.separator();
     }
-    let deactivate = MenuItemBuilder::with_id("deactivate", "Tắt môi trường")
+    let deactivate = MenuItemBuilder::with_id("deactivate", "Deactivate")
         .accelerator("CmdOrCtrl+0")
         .enabled(shape.any_active)
         .build(app)?;
     let profile = profile.item(&deactivate).build()?;
 
-    let window = SubmenuBuilder::new(app, "Cửa sổ")
-        .minimize_with_text("Thu nhỏ")
-        .maximize_with_text("Phóng to")
+    let window = SubmenuBuilder::new(app, "Window")
+        .minimize_with_text("Minimize")
+        .maximize_with_text("Zoom")
         .separator()
-        .close_window_with_text("Đóng cửa sổ")
+        .close_window_with_text("Close Window")
         .build()?;
 
     Menu::with_items(app, &[&app_menu, &edit, &view, &profile, &window])
@@ -264,7 +264,7 @@ mod tests {
     #[test]
     fn encodes_query_values() {
         assert_eq!(percent_encode("Feedback: "), "Feedback%3A%20");
-        assert_eq!(percent_encode("a\nb#ế"), "a%0Ab%23%E1%BA%BF");
+        assert_eq!(percent_encode("a\nb#\u{1ebf}"), "a%0Ab%23%E1%BA%BF");
     }
 
     #[test]

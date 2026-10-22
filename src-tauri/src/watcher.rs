@@ -28,11 +28,11 @@ impl FileWatcher {
         debounce: Duration,
         on_change: impl Fn() + Send + 'static,
     ) -> Result<Self, String> {
-        let name: OsString = path.file_name().ok_or("Đường dẫn không hợp lệ")?.into();
+        let name: OsString = path.file_name().ok_or("Invalid path")?.into();
         // FSEvents reports resolved paths, so `/etc` arrives as `/private/etc`.
         let dir = path
             .parent()
-            .ok_or("Đường dẫn không hợp lệ")?
+            .ok_or("Invalid path")?
             .canonicalize()
             .map_err(|e| e.to_string())?;
         let mut debouncer = new_debouncer(debounce, move |result: DebounceEventResult| {

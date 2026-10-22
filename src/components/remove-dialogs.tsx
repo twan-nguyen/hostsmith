@@ -18,9 +18,9 @@ export function RemoveProfileDialog({ profile, onClose }: { profile: Profile | n
   return (
     <ConfirmDialog
       open={profile !== null}
-      title="Xoá profile?"
-      description={`Xoá metadata của profile ${profile?.name}. Các entry trong /etc/hosts được giữ nguyên.`}
-      confirmLabel="Xoá profile"
+      title="Delete profile?"
+      description={`Deletes the metadata of profile ${profile?.name}. Its entries in /etc/hosts stay as they are.`}
+      confirmLabel="Delete profile"
       onConfirm={() => profile && void remove(profile)}
       onClose={onClose}
     />

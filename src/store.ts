@@ -24,7 +24,7 @@ const PREFS = {
   sidebarWidth: "hostsmith.sidebarWidth",
   sidebarCollapsed: "hostsmith.sidebarCollapsed",
   collapsedGroups: "hostsmith.sidebarCollapsedGroups",
-  // Renamed when "Dự án" became the default, so an older choice does not stick.
+  // Renamed when "Projects" became the default, so an older choice does not stick.
   portsFilter: "hostsmith.portsView",
 } as const;
 

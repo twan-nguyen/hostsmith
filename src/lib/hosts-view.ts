@@ -1,4 +1,5 @@
 import type { Check, HostEntry, HostsSnapshot, Profile } from "@/lib/hostsmith";
+import { plural } from "@/lib/utils";
 
 // MARK: - Profiles
 
@@ -31,26 +32,26 @@ export function verificationSummary(results: Check[]): VerificationSummary {
   if (mismatches.length === 0) {
     return {
       tone: "success",
-      title: `${results.length} hostname vừa ghi phân giải đúng`,
-      lines: ["Chrome giữ cache DNS riêng, nên trình duyệt có thể vẫn trỏ về địa chỉ cũ thêm một lúc."],
+      title: `${plural(results.length, "hostname")} resolved as written`,
+      lines: ["Chrome keeps its own DNS cache, so the browser may point at the old address a while longer."],
     };
   }
   const lines = mismatches.slice(0, MISMATCH_LINES).map((r) => {
-    const resolved = r.resolvedIps.length === 0 ? "không phân giải" : r.resolvedIps.join(", ");
-    return `${r.hostname} → ${resolved} (mong đợi ${r.expectedIp})`;
+    const resolved = r.resolvedIps.length === 0 ? "unresolved" : r.resolvedIps.join(", ");
+    return `${r.hostname} → ${resolved} (expected ${r.expectedIp})`;
   });
   if (mismatches.length > MISMATCH_LINES) lines.push("…");
   return {
     tone: "warning",
-    title: `${mismatches.length} trong ${results.length} hostname vừa ghi chưa phân giải như /etc/hosts`,
+    title: `${mismatches.length} of ${plural(results.length, "hostname")} did not resolve as written in /etc/hosts`,
     lines,
   };
 }
 
-/** "Môi trường · 3 entry · 2 bật". */
+/** "Environment · 3 entries · 2 on". */
 export function profileSubtitle(profile: Profile, entryCount: number, enabledCount: number): string {
-  const parts = [profile.isExclusive ? "Môi trường" : "Block", `${entryCount} entry`];
-  if (entryCount > 0) parts.push(`${enabledCount} bật`);
+  const parts = [profile.isExclusive ? "Environment" : "Block", plural(entryCount, "entry", "entries")];
+  if (entryCount > 0) parts.push(`${enabledCount} on`);
   return parts.join(" · ");
 }
 
@@ -79,5 +80,5 @@ export const parseAliases = (text: string): string[] => text.split(/\s+/).filter
 /** Every block an entry can join: existing tags, profiles without entries yet, and the preset one. */
 export function blockChoices(tags: string[], profiles: Profile[], preset?: string | null): string[] {
   const names = new Set([...tags, ...profiles.map((p) => p.name), ...(preset ? [preset] : [])]);
-  return [...names].filter(Boolean).sort((a, b) => a.localeCompare(b, "vi", { sensitivity: "base" }));
+  return [...names].filter(Boolean).sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
 }

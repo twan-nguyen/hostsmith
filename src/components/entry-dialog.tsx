@@ -57,7 +57,7 @@ export function EntryDialog({
     setHostnameError(null);
     const name = hostname.trim();
     if (!entry && hostnameTaken(hosts?.entries ?? [], name)) {
-      setHostnameError(`Hostname ${name} đã có trong /etc/hosts`);
+      setHostnameError(`${name} is already in /etc/hosts`);
       return false;
     }
     const input = {
@@ -73,15 +73,15 @@ export function EntryDialog({
   return (
     <FormDialog
       open={open}
-      title={entry ? "Sửa entry" : "Entry mới"}
-      description="Không ghi gì vào /etc/hosts cho đến khi bạn nhấn Áp dụng."
-      submitLabel={entry ? "Lưu" : "Thêm entry"}
+      title={entry ? "Edit entry" : "New entry"}
+      description="Nothing is written to /etc/hosts until you press Apply."
+      submitLabel={entry ? "Save" : "Add entry"}
       submitTestId="entry-submit"
       onSubmit={submit}
       onClose={onClose}
       className="sm:max-w-md"
     >
-      <Field id={ids.ip} label="Địa chỉ IP">
+      <Field id={ids.ip} label="IP address">
         <Input
           id={ids.ip}
           value={ip}
@@ -128,7 +128,7 @@ export function EntryDialog({
         />
       </Field>
 
-      <Field id={ids.aliases} label="Alias" hint="Không bắt buộc. Cách nhau bằng dấu cách.">
+      <Field id={ids.aliases} label="Aliases" hint="Optional. Separate with spaces.">
         <Input
           id={ids.aliases}
           value={aliases}
@@ -140,7 +140,7 @@ export function EntryDialog({
         />
       </Field>
 
-      <Field id={ids.comment} label="Ghi chú">
+      <Field id={ids.comment} label="Comment">
         <Input id={ids.comment} value={comment} onChange={(e) => setComment(e.target.value)} />
       </Field>
 
@@ -150,7 +150,7 @@ export function EntryDialog({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={NO_BLOCK}>Không thuộc block</SelectItem>
+            <SelectItem value={NO_BLOCK}>No block</SelectItem>
             {blocks.map((name) => (
               <SelectItem key={name} value={blockValue(name)}>
                 {name}

@@ -82,7 +82,7 @@ function NoteCard({ note }: { note: Note }) {
       {note.onDismiss && (
         <button
           onClick={note.onDismiss}
-          aria-label="Đóng"
+          aria-label="Close"
           className="-mt-0.5 -mr-1 rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
           <X className="size-3.5" />
@@ -98,18 +98,18 @@ function useAlerts(): Note[] {
   const chrome = useStore((s) => s.tools?.chrome ?? false);
   const run = useStore((s) => s.run);
   const applying = hosts?.applying ?? false;
-  const reload = { label: "Tải lại", onClick: () => void run(hostsReload()), disabled: applying };
+  const reload = { label: "Reload", onClick: () => void run(hostsReload()), disabled: applying };
 
   return hostsAlerts(hosts).map((alert): Note => {
     switch (alert) {
       case "loadError":
-        return { key: alert, tone: "danger", title: "Không đọc được /etc/hosts", detail: hosts?.loadError, actions: [reload] };
+        return { key: alert, tone: "danger", title: "Could not read /etc/hosts", detail: hosts?.loadError, actions: [reload] };
       case "externalChange":
         return {
           key: alert,
           tone: "warning",
-          title: "/etc/hosts vừa đổi bên ngoài Hosven",
-          detail: "Tải lại trước khi ghi. Thay đổi chưa áp dụng sẽ bị bỏ.",
+          title: "/etc/hosts changed outside HostSmith",
+          detail: "Reload before writing. Unapplied changes will be discarded.",
           actions: [reload],
         };
       case "conflict": {
@@ -118,10 +118,10 @@ function useAlerts(): Note[] {
         return {
           key: alert,
           tone: "warning",
-          title: `${environments.length} môi trường đang cùng bật`,
-          detail: "Hostname trùng nhau trỏ theo dòng đứng trước. Giữ một môi trường để tắt phần còn lại.",
+          title: `${environments.length} environments are active at once`,
+          detail: "A hostname listed twice follows the earlier line. Keep one environment to turn off the rest.",
           actions: environments.map((p) => ({
-            label: `Chỉ giữ ${p.name}`,
+            label: `Keep only ${p.name}`,
             onClick: () => void run(hostsSwitchEnvironment(p.id, "ask")),
             disabled: applying,
           })),
@@ -130,7 +130,7 @@ function useAlerts(): Note[] {
       case "mismatch": {
         const summary = verificationSummary(hosts?.verification?.results ?? []);
         const actions: Action[] = [];
-        if (chrome) actions.push({ label: "Xoá cache DNS của Chrome", onClick: () => void run(toolsOpenChromeDns()) });
+        if (chrome) actions.push({ label: "Clear Chrome's DNS cache", onClick: () => void run(toolsOpenChromeDns()) });
         return {
           key: alert,
           tone: "warning",

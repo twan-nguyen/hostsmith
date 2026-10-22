@@ -14,7 +14,7 @@ const profiles: Profile[] = [
   { id: "p-staging", name: "Staging", color: "amber", shortcutNumber: 2, isExclusive: true },
   { id: "p-prod", name: "Production", color: "red", shortcutNumber: 3, isExclusive: true },
   { id: "p-mocks", name: "Mocks", color: "purple", isExclusive: false },
-  { id: "p-ads", name: "Chặn quảng cáo", color: "green", isExclusive: false },
+  { id: "p-ads", name: "Ad blocking", color: "green", isExclusive: false },
 ];
 
 let seq = 0;
@@ -32,19 +32,19 @@ const entries: HostEntry[] = [
   entry("127.0.0.1", "localhost", null),
   entry("255.255.255.255", "broadcasthost", null),
   entry("::1", "localhost", null),
-  entry("127.0.0.1", "api.shop.test", "Local", false, "API chạy bằng docker compose"),
+  entry("127.0.0.1", "api.shop.test", "Local", false, "API runs in docker compose"),
   entry("127.0.0.1", "web.shop.test", "Local", false),
   entry("127.0.0.1", "admin.shop.test", "Local", false),
   entry("10.20.0.14", "api.shop.example.com", "Staging", true, "staging-api-01"),
   entry("10.20.0.15", "web.shop.example.com", "Staging", true),
   entry("10.20.0.16", "admin.shop.example.com", "Staging", true),
-  entry("10.20.0.30", "cdn.shop.example.com", "Staging", false, "tạm tắt"),
+  entry("10.20.0.30", "cdn.shop.example.com", "Staging", false, "paused"),
   entry("52.74.10.8", "api.shop.example.com", "Production", false),
   entry("52.74.10.9", "web.shop.example.com", "Production", false),
   entry("127.0.0.1", "payments.mock", "Mocks", true),
   entry("127.0.0.1", "sms.mock", "Mocks", true),
-  entry("0.0.0.0", "ads.doubleclick.net", "Chặn quảng cáo", false),
-  entry("0.0.0.0", "pagead2.googlesyndication.com", "Chặn quảng cáo", false),
+  entry("0.0.0.0", "ads.doubleclick.net", "Ad blocking", false),
+  entry("0.0.0.0", "pagead2.googlesyndication.com", "Ad blocking", false),
 ];
 
 function text(): string {
@@ -145,7 +145,7 @@ export function installMockIpc() {
         }
         case "hosts_set_tag_enabled": {
           for (const e of entries.filter((e) => e.tag === a.name)) e.enabled = Boolean(a.enabled);
-          say(`Đã ${a.enabled ? "bật" : "tắt"} block ${String(a.name)}`);
+          say(`${a.enabled ? "Enabled" : "Disabled"} block ${String(a.name)}`);
           changed();
           return null;
         }
@@ -155,7 +155,7 @@ export function installMockIpc() {
             const p = profiles.find((p) => p.name === e.tag);
             if (p?.isExclusive) e.enabled = p.id === target?.id;
           }
-          say(target ? `Đã chuyển sang ${target.name}` : "Đã tắt môi trường");
+          say(target ? `Switched to ${target.name}` : "Deactivated the environment");
           changed();
           return { kind: "written" };
         }

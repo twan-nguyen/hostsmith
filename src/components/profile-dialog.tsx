@@ -50,28 +50,28 @@ export function ProfileDialog({
   return (
     <FormDialog
       open={open}
-      title={profile ? `Sửa ${profile.name}` : exclusive ? "Môi trường mới" : "Block mới"}
+      title={profile ? `Edit ${profile.name}` : exclusive ? "New environment" : "New block"}
       description={
         exclusive ? (
-          "Bật một môi trường sẽ tắt các môi trường khác."
+          "Turning an environment on turns the others off."
         ) : (
           <>
-            Block là một nhóm <code className="font-mono text-xs">## [tag:Tên]</code> bật tắt độc lập.
+            A block is a <code className="font-mono text-xs">## [tag:Name]</code> group that turns on and off on its own.
           </>
         )
       }
-      submitLabel={profile ? "Lưu" : exclusive ? "Tạo môi trường" : "Tạo block"}
+      submitLabel={profile ? "Save" : exclusive ? "Create environment" : "Create block"}
       canSubmit={name.trim() !== ""}
       onSubmit={submit}
       onClose={onClose}
     >
-      <Field id={ids.name} label="Tên">
+      <Field id={ids.name} label="Name">
         <Input id={ids.name} value={name} onChange={(e) => setName(e.target.value)} autoFocus spellCheck={false} />
       </Field>
 
       {exclusive && (
         <div className="flex flex-col gap-2">
-          <span className="text-muted-foreground">Màu</span>
+          <span className="text-muted-foreground">Color</span>
           <div className="flex flex-wrap gap-1.5">
             {PICKER_COLORS.map((c) => (
               <button

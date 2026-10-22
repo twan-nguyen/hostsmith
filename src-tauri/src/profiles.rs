@@ -197,12 +197,12 @@ impl ProfileStore for FileProfileStore {
                     Some(moved) => Loaded {
                         profiles: Vec::new(),
                         notice: Some(format!(
-                            "Không đọc được profiles.json, HostSmith đã chuyển nó sang {}",
+                            "Could not read profiles.json, so HostSmith moved it to {}",
                             moved.file_name().unwrap_or_default().to_string_lossy()
                         )),
                     },
                     None => self.unreadable(
-                        "Không đọc được profiles.json. HostSmith sẽ không ghi đè nó.".into(),
+                        "Could not read profiles.json. HostSmith will not overwrite it.".into(),
                     ),
                 },
             },
@@ -211,14 +211,16 @@ impl ProfileStore for FileProfileStore {
                 notice: None,
             },
             Err(error) => self.unreadable(format!(
-                "Không đọc được profiles.json: {error}. HostSmith sẽ không ghi đè nó."
+                "Could not read profiles.json: {error}. HostSmith will not overwrite it."
             )),
         }
     }
 
     fn save(&self, profiles: &[Profile]) -> Result<(), String> {
         if self.read_only.load(Ordering::SeqCst) {
-            return Err("file hiện có không đọc được, HostSmith không ghi đè nó".into());
+            return Err(
+                "the existing file could not be read, so HostSmith will not overwrite it".into(),
+            );
         }
         let disk: Vec<DiskProfile> = profiles.iter().map(DiskProfile::from).collect();
         config::write_json_atomic(&self.path, &disk)
@@ -348,7 +350,7 @@ mod tests {
         fs::create_dir_all(&path).unwrap();
         let loaded = store.load();
         assert!(loaded.profiles.is_empty());
-        assert!(loaded.notice.unwrap().contains("không ghi đè"));
+        assert!(loaded.notice.unwrap().contains("will not overwrite"));
         assert!(store.save(&sample()).is_err());
         assert!(path.is_dir());
     }

@@ -22,6 +22,12 @@ pub async fn blocking<T: Send + 'static>(
         .map_err(|e| e.to_string())?
 }
 
+/// `count` followed by the noun in the matching number: "1 entry",
+/// "2 entries".
+pub fn counted(count: usize, one: &str, many: &str) -> String {
+    format!("{count} {}", if count == 1 { one } else { many })
+}
+
 /// How many lines differ between `before` and `after`, ignoring order and
 /// counting a repeated line each time it occurs. A changed line counts once,
 /// not as one removed and one added.
@@ -41,6 +47,13 @@ pub fn changed_lines(before: &str, after: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn counts_a_noun_in_the_matching_number() {
+        assert_eq!(counted(0, "entry", "entries"), "0 entries");
+        assert_eq!(counted(1, "entry", "entries"), "1 entry");
+        assert_eq!(counted(2, "entry", "entries"), "2 entries");
+    }
 
     #[test]
     fn counts_changed_lines_including_repeats() {

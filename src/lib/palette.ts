@@ -43,7 +43,7 @@ export type PaletteSources = {
 
 const SECTION_TITLES: Record<PaletteCategory, string> = {
   profile: "Profile",
-  suggestions: "Gợi ý",
+  suggestions: "Suggestions",
 };
 const ORDER: PaletteCategory[] = ["profile", "suggestions"];
 /** Enough to spot the right one without a long hosts file drowning the list. */
@@ -53,7 +53,7 @@ function universe(sources: PaletteSources): PaletteCommand[] {
   const commands: PaletteCommand[] = [
     {
       id: "open-systemHosts",
-      title: "Mở Hosts hệ thống",
+      title: "Open System hosts",
       subtitle: "/etc/hosts",
       icon: "network",
       category: "suggestions",
@@ -61,8 +61,8 @@ function universe(sources: PaletteSources): PaletteCommand[] {
     },
     {
       id: "open-ports",
-      title: "Mở Ports",
-      subtitle: "Cổng đang bị chiếm",
+      title: "Open Ports",
+      subtitle: "Ports in use",
       icon: "ports",
       category: "suggestions",
       action: { type: "select", selection: { kind: "ports" } },
@@ -74,8 +74,8 @@ function universe(sources: PaletteSources): PaletteCommand[] {
     const n = env.shortcutNumber;
     commands.push({
       id: `switch-profile-${env.id}`,
-      title: `Chuyển sang ${env.name}`,
-      subtitle: env.active ? "Đang hoạt động" : undefined,
+      title: `Switch to ${env.name}`,
+      subtitle: env.active ? "Active" : undefined,
       icon: "environment",
       tint: env.color,
       shortcut: n && n >= 1 && n <= 9 ? `⌘${n}` : undefined,
@@ -86,8 +86,8 @@ function universe(sources: PaletteSources): PaletteCommand[] {
   if (sources.anyActive) {
     commands.push({
       id: "clear-profile",
-      title: "Tắt môi trường đang bật",
-      subtitle: "Ghi vào /etc/hosts",
+      title: "Deactivate the active environment",
+      subtitle: "Writes /etc/hosts",
       icon: "off",
       shortcut: "⌘0",
       category: "profile",
@@ -100,8 +100,8 @@ function universe(sources: PaletteSources): PaletteCommand[] {
 function searchJump(query: string): PaletteCommand {
   return {
     id: "search-hosts",
-    title: `Tìm "${query}" trong Hosts`,
-    subtitle: "Lọc theo hostname / IP",
+    title: `Search "${query}" in Hosts`,
+    subtitle: "Filter by hostname / IP",
     icon: "search",
     category: "suggestions",
     action: { type: "searchHosts", query },

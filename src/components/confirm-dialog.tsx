@@ -9,7 +9,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-/** Asks before something that cannot be taken back. "Huỷ" is the default. */
+/** Asks before something that cannot be taken back. "Cancel" is the default. */
 export function ConfirmDialog({
   open,
   title,
@@ -35,7 +35,7 @@ export function ConfirmDialog({
           <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel autoFocus>Huỷ</AlertDialogCancel>
+          <AlertDialogCancel autoFocus>Cancel</AlertDialogCancel>
           <AlertDialogAction
             variant={destructive ? "destructive" : "default"}
             onClick={() => {

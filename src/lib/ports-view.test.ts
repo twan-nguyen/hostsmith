@@ -35,7 +35,7 @@ const system = port({ port: 5000, process: "ControlCenter", pid: 300, isSystem: 
 const all = [yours, container, stranger, system];
 
 describe("filters", () => {
-  it("shows everything but system services under Người dùng", () => {
+  it("shows everything but system services under User", () => {
     expect(filterPorts(all, "user")).toEqual([yours, container, stranger]);
   });
 
@@ -55,7 +55,7 @@ describe("labels", () => {
     expect(ownerLabel(yours.owner)).toBe("api");
     expect(ownerLabel(container.owner)).toBe("db");
     expect(ownerLabel({ kind: "container", name: null })).toBe("Container");
-    expect(ownerLabel(stranger.owner)).toBe("Không rõ");
+    expect(ownerLabel(stranger.owner)).toBe("Unknown");
   });
 
   it("marks only unknown ports that need attention as danger", () => {
@@ -86,23 +86,23 @@ describe("scan age", () => {
   });
 
   it("says just now under five seconds, then counts seconds", () => {
-    expect(scanAge(scannedAt, scannedAt + 4_999)).toBe("vừa xong");
-    expect(scanAge(scannedAt, scannedAt + 5_000)).toBe("5 giây trước");
-    expect(scanAge(scannedAt, scannedAt + 59_000)).toBe("59 giây trước");
+    expect(scanAge(scannedAt, scannedAt + 4_999)).toBe("just now");
+    expect(scanAge(scannedAt, scannedAt + 5_000)).toBe("5 sec ago");
+    expect(scanAge(scannedAt, scannedAt + 59_000)).toBe("59 sec ago");
   });
 
   it("switches to minutes and hours for old scans", () => {
-    expect(scanAge(scannedAt, scannedAt + 125_000)).toBe("2 phút trước");
-    expect(scanAge(scannedAt, scannedAt + 2 * 3_600_000)).toBe("2 giờ trước");
+    expect(scanAge(scannedAt, scannedAt + 125_000)).toBe("2 min ago");
+    expect(scanAge(scannedAt, scannedAt + 2 * 3_600_000)).toBe("2 hr ago");
   });
 
   it("treats a clock that went back as just now", () => {
-    expect(scanAge(scannedAt, scannedAt - 10_000)).toBe("vừa xong");
+    expect(scanAge(scannedAt, scannedAt - 10_000)).toBe("just now");
   });
 
   it("builds the subtitle from the non-system count", () => {
-    expect(portsSubtitle(scannedAt, scannedAt + 1_000)).toBe("Quét vừa xong");
-    expect(portsSubtitle(scannedAt, scannedAt + 12_000)).toBe("Quét 12 giây trước");
+    expect(portsSubtitle(scannedAt, scannedAt + 1_000)).toBe("Scanned just now");
+    expect(portsSubtitle(scannedAt, scannedAt + 12_000)).toBe("Scanned 12 sec ago");
   });
 });
 

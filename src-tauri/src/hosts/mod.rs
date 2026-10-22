@@ -280,13 +280,13 @@ pub async fn hosts_backup(app: AppHandle) -> Result<(), String> {
     let ran = run_as_root(move || runner.run(&script)).await;
     mutate(&app, &state, |h| match ran {
         RunOutcome::Ok => h.show_toast(
-            format!("Đã tạo bản sao lưu {}", path.display()),
+            format!("Backed up /etc/hosts to {}", path.display()),
             ToastKind::Success,
         ),
         RunOutcome::Cancelled => {}
         failed => h.show_toast(
             format!(
-                "Không tạo được bản sao lưu: {}",
+                "Could not back up /etc/hosts: {}",
                 failed.failure().unwrap_or_default()
             ),
             ToastKind::Error,

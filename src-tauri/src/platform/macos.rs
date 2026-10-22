@@ -26,7 +26,7 @@ const ROOT_PATH: &str = "PATH=/usr/bin:/bin:/usr/sbin:/sbin";
 /// How long a script may run once it has started. The password prompt comes
 /// before that and is never cut short.
 const SCRIPT_LIMIT: Duration = Duration::from_secs(30);
-const NOT_RESPONDING: &str = "lệnh quản trị không phản hồi";
+const NOT_RESPONDING: &str = "the admin command did not respond";
 
 /// Holds the rights between runs. macOS keeps the admin credential inside the
 /// `Authorization` that obtained it for about five minutes, so reusing one
@@ -156,7 +156,7 @@ fn exchange(channel: File, input: &[u8], limit: Duration) -> RunOutcome {
         return RunOutcome::Failed {
             exit: -1,
             stderr: match transfer.read_error {
-                Some(error) => format!("không đọc được kết quả lệnh: {error}"),
+                Some(error) => format!("could not read the command output: {error}"),
                 None => NOT_RESPONDING.into(),
             },
         };
@@ -255,7 +255,7 @@ fn transfer(channel: &File, input: &[u8], limit: Duration) -> Transfer {
         }
     }
     if sending && !result.timed_out && result.input_error.is_none() {
-        result.input_error = Some("lệnh kết thúc trước khi nhận hết nội dung".into());
+        result.input_error = Some("the command ended before it received all the content".into());
     }
     result
 }
@@ -295,7 +295,7 @@ fn input_failure(output: Output, waited: Option<i32>, error: &str) -> RunOutcome
     RunOutcome::Failed {
         exit,
         stderr: if output.body.trim().is_empty() {
-            format!("không gửi được nội dung cho lệnh: {error}")
+            format!("could not send the content to the command: {error}")
         } else {
             output.body
         },
@@ -416,7 +416,7 @@ fn exit_outcome(output: Output, waited: Option<i32>) -> RunOutcome {
         None => RunOutcome::Failed {
             exit: -1,
             stderr: if output.body.trim().is_empty() {
-                "không đọc được mã thoát của lệnh".into()
+                "could not read the exit code of the command".into()
             } else {
                 output.body
             },
@@ -622,7 +622,7 @@ mod tests {
             outcome,
             RunOutcome::Failed {
                 exit: -1,
-                stderr: "lệnh quản trị không phản hồi".into(),
+                stderr: "the admin command did not respond".into(),
             }
         );
         // The script's own child is killed too, not left behind.
@@ -697,7 +697,7 @@ mod tests {
             exit_outcome(parse_output(""), None),
             RunOutcome::Failed {
                 exit: -1,
-                stderr: "không đọc được mã thoát của lệnh".into(),
+                stderr: "could not read the exit code of the command".into(),
             }
         );
     }
@@ -712,7 +712,7 @@ mod tests {
             ),
             RunOutcome::Failed {
                 exit: -1,
-                stderr: "không gửi được nội dung cho lệnh: Broken pipe".into(),
+                stderr: "could not send the content to the command: Broken pipe".into(),
             }
         );
     }

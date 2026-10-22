@@ -153,7 +153,7 @@ pub fn format_entry(entry: &HostEntry) -> String {
     line
 }
 
-/// Four dotted numbers 0–255, or an IPv6 address with an optional `%zone`.
+/// Four dotted numbers 0-255, or an IPv6 address with an optional `%zone`.
 /// Hosven 1.x took anything with a colon, which turned comments such as
 /// `# Note: fix this` into disabled entries.
 pub fn is_valid_ip(text: &str) -> bool {

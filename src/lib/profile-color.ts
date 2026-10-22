@@ -27,13 +27,13 @@ export const PROFILE_COLORS: Record<
     environment: true,
   },
   green: {
-    label: "Trung tính",
+    label: "Neutral",
     dot: "bg-muted-foreground/60",
     chip: "bg-muted text-muted-foreground",
     environment: false,
   },
   purple: {
-    label: "Trung tính",
+    label: "Neutral",
     dot: "bg-muted-foreground/60",
     chip: "bg-muted text-muted-foreground",
     environment: false,

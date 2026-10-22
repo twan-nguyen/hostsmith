@@ -428,7 +428,10 @@ fn run_tool(program: &Path, args: &[&str], limit: Duration) -> std::io::Result<R
                     Err(error) => error,
                     _ => std::io::Error::new(
                         std::io::ErrorKind::TimedOut,
-                        format!("không phản hồi sau {} giây", limit.as_secs()),
+                        format!(
+                            "did not respond after {}",
+                            crate::util::counted(limit.as_secs() as usize, "second", "seconds")
+                        ),
                     ),
                 });
             }
@@ -470,7 +473,7 @@ fn scan_system() -> Result<Vec<ListeningPort>, String> {
         &["-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pcuLn"],
         LSOF_LIMIT,
     )
-    .map_err(|e| format!("Không chạy được lsof: {e}"))?;
+    .map_err(|e| format!("Could not run lsof: {e}"))?;
     let records = parse_listing(&listing);
 
     let mut pids: Vec<String> = records.iter().map(|r| r.pid.to_string()).collect();
@@ -625,10 +628,7 @@ fn conclude(
     let process = &target.process;
     let freed = (
         KillOutcome::Freed,
-        (
-            format!("Đã giải phóng cổng {}", target.port),
-            ToastKind::Success,
-        ),
+        (format!("Freed port {}", target.port), ToastKind::Success),
     );
     match delivery {
         Delivery::Gone => freed,
@@ -636,7 +636,7 @@ fn conclude(
             KillOutcome::Failed,
             (
                 format!(
-                    "Tiến trình {process} (pid {}) đã thay đổi từ lần quét trước. HostSmith đã quét lại.",
+                    "Process {process} (pid {}) changed since the last scan. HostSmith scanned again.",
                     target.pid
                 ),
                 ToastKind::Info,
@@ -645,7 +645,7 @@ fn conclude(
         Delivery::Failed => (
             KillOutcome::Failed,
             (
-                format!("Không gửi được tín hiệu tới {process} (pid {})", target.pid),
+                format!("Could not signal {process} (pid {})", target.pid),
                 ToastKind::Error,
             ),
         ),
@@ -653,7 +653,7 @@ fn conclude(
             KillOutcome::StillRunning,
             (
                 format!(
-                    "{process} (pid {}) vẫn chạy sau {}",
+                    "{process} (pid {}) is still running after {}",
                     target.pid,
                     if force { "SIGKILL" } else { "SIGTERM" }
                 ),
@@ -679,7 +679,10 @@ fn stop_container(name: &str) -> Result<(), StopError> {
     } else {
         let stderr = ran.stderr.trim().to_string();
         Err(StopError::Failed(if stderr.is_empty() {
-            format!("docker thoát với mã {}", ran.status.code().unwrap_or(-1))
+            format!(
+                "docker exited with code {}",
+                ran.status.code().unwrap_or(-1)
+            )
         } else {
             stderr
         }))
@@ -725,9 +728,7 @@ pub async fn ports_kill(app: AppHandle, pid: i32, force: bool) -> Result<KillOut
         .listed_pid(pid)
         .filter(|p| p.pid > 0)
         .cloned()
-        .ok_or_else(|| {
-            format!("Không thấy pid {pid} trong lần quét gần nhất. Quét lại rồi thử.")
-        })?;
+        .ok_or_else(|| format!("PID {pid} was not in the last scan. Scan again, then retry."))?;
 
     let signalled = target.clone();
     let delivery = tauri::async_runtime::spawn_blocking(move || deliver(&signalled, force))
@@ -751,20 +752,20 @@ pub async fn ports_kill(app: AppHandle, pid: i32, force: bool) -> Result<KillOut
 pub async fn ports_stop_container(app: AppHandle, name: String) -> Result<(), String> {
     let state = app.state::<PortsState>();
     let port = state.lock().container_port(&name).ok_or_else(|| {
-        format!("Không thấy container {name} trong lần quét gần nhất. Quét lại rồi thử.")
+        format!("Container {name} was not in the last scan. Scan again, then retry.")
     })?;
     let stop_name = name.clone();
     let stopped = tauri::async_runtime::spawn_blocking(move || stop_container(&stop_name))
         .await
         .unwrap_or_else(|error| Err(StopError::Failed(error.to_string())));
     let (message, kind) = match stopped {
-        Ok(()) => (format!("Đã dừng container {name}"), ToastKind::Success),
+        Ok(()) => (format!("Stopped container {name}"), ToastKind::Success),
         Err(StopError::NoDocker) => (
-            format!("Không tìm thấy docker CLI để dừng container trên cổng {port}"),
+            format!("Could not find the docker CLI to stop the container on port {port}"),
             ToastKind::Error,
         ),
         Err(StopError::Failed(error)) => (
-            format!("Không dừng được container {name}: {error}"),
+            format!("Could not stop container {name}: {error}"),
             ToastKind::Error,
         ),
     };
@@ -1072,28 +1073,28 @@ mod tests {
         };
         assert_eq!(
             message(Delivery::Sent, false, false),
-            (KillOutcome::Freed, "Đã giải phóng cổng 3000".into())
+            (KillOutcome::Freed, "Freed port 3000".into())
         );
         assert_eq!(
             message(Delivery::Gone, false, true),
-            (KillOutcome::Freed, "Đã giải phóng cổng 3000".into())
+            (KillOutcome::Freed, "Freed port 3000".into())
         );
         assert_eq!(
             message(Delivery::Sent, true, false),
             (
                 KillOutcome::StillRunning,
-                "node (pid 807) vẫn chạy sau SIGTERM".into()
+                "node (pid 807) is still running after SIGTERM".into()
             )
         );
         assert_eq!(
             message(Delivery::Sent, true, true).1,
-            "node (pid 807) vẫn chạy sau SIGKILL"
+            "node (pid 807) is still running after SIGKILL"
         );
         assert_eq!(
             message(Delivery::Changed, false, false),
             (
                 KillOutcome::Failed,
-                "Tiến trình node (pid 807) đã thay đổi từ lần quét trước. HostSmith đã quét lại."
+                "Process node (pid 807) changed since the last scan. HostSmith scanned again."
                     .into()
             )
         );
@@ -1101,7 +1102,7 @@ mod tests {
             message(Delivery::Failed, false, false),
             (
                 KillOutcome::Failed,
-                "Không gửi được tín hiệu tới node (pid 807)".into()
+                "Could not signal node (pid 807)".into()
             )
         );
     }
@@ -1193,7 +1194,7 @@ mod tests {
             .expect("timed out");
         assert!(started.elapsed() < Duration::from_secs(5));
         assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
-        assert!(error.to_string().starts_with("không phản hồi sau"));
+        assert!(error.to_string().starts_with("did not respond after"));
     }
 
     #[test]
@@ -1216,11 +1217,11 @@ mod tests {
         let seq = ports.begin_scan();
         ports.finish_scan(seq, Ok(vec![listed("node", 1, 3000)]), 1);
         let seq = ports.begin_scan();
-        ports.finish_scan(seq, Err("Không chạy được lsof: x".into()), 2);
+        ports.finish_scan(seq, Err("Could not run lsof: x".into()), 2);
         let snapshot = ports.snapshot();
         assert_eq!(snapshot.ports.len(), 1);
         assert_eq!(snapshot.scanned_at, Some(1));
-        assert_eq!(snapshot.toast.unwrap().message, "Không chạy được lsof: x");
+        assert_eq!(snapshot.toast.unwrap().message, "Could not run lsof: x");
     }
 
     #[test]

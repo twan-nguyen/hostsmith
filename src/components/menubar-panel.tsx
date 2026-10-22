@@ -22,7 +22,7 @@ import {
   userPorts,
 } from "@/lib/menubar";
 import { PROFILE_COLORS } from "@/lib/profile-color";
-import { cn, errorMessage } from "@/lib/utils";
+import { cn, errorMessage, plural } from "@/lib/utils";
 import { useStore } from "@/store";
 
 const PANEL_WIDTH = 340;
@@ -128,7 +128,7 @@ export function MenubarPanel() {
         <button
           onClick={() => setSwitcherOpen((open) => !open)}
           aria-expanded={switcherOpen}
-          aria-label={activeProfile ? `Môi trường đang bật: ${activeProfile.name}` : "Không có môi trường đang bật"}
+          aria-label={activeProfile ? `Active environment: ${activeProfile.name}` : "No active environment"}
           className="flex items-center gap-3 rounded-lg bg-muted/70 px-3 py-2.5 text-left transition-colors hover:bg-muted"
         >
           <Layers className="size-4 shrink-0 text-muted-foreground" />
@@ -155,14 +155,14 @@ export function MenubarPanel() {
               <Row
                 key={row.profile.id}
                 title={row.profile.name}
-                subtitle={`${row.entryCount} entry`}
-                trailing={row.active ? "Đang bật" : undefined}
+                subtitle={plural(row.entryCount, "entry", "entries")}
+                trailing={row.active ? "Active" : undefined}
                 disabled={busy}
                 onClick={() => void switchTo(row.profile.id)}
               />
             ))}
             {hosts && hosts.active.kind !== "none" && (
-              <Row title="Tắt môi trường" disabled={busy} onClick={() => void switchTo(null)} />
+              <Row title="Deactivate environment" disabled={busy} onClick={() => void switchTo(null)} />
             )}
           </div>
         )}
@@ -173,8 +173,8 @@ export function MenubarPanel() {
           <Banner tone="danger" title={failure} onDismiss={() => setFailure(null)} className="mx-1 mb-1.5 px-3 py-2" />
         )}
 
-        <GroupLabel>Bật nhanh</GroupLabel>
-        {shownBlocks.length === 0 && <Empty>Chưa có block nào trong /etc/hosts</Empty>}
+        <GroupLabel>Quick toggles</GroupLabel>
+        {shownBlocks.length === 0 && <Empty>No blocks in /etc/hosts yet</Empty>}
         {shownBlocks.map((row) => (
           <div key={row.profile.id} className="flex min-h-9 items-center gap-3 px-3 py-1">
             <div className="flex min-w-0 flex-1 flex-col">
@@ -185,20 +185,20 @@ export function MenubarPanel() {
               size="sm"
               checked={row.on}
               disabled={busy}
-              aria-label={`${row.profile.name}, ${row.on ? "bật" : "tắt"}`}
+              aria-label={`${row.profile.name}, ${row.on ? "on" : "off"}`}
               onCheckedChange={(checked) => void write(panelToggleBlock(row.profile.name, checked))}
             />
           </div>
         ))}
         {blocks.length > shownBlocks.length && (
-          <Row title="Xem tất cả trong HostSmith" accent onClick={() => void panelOpenMain()} />
+          <Row title="Show all in HostSmith" accent onClick={() => void panelOpenMain()} />
         )}
 
         <Separator />
 
-        <GroupLabel>Cổng đang dùng · {portList.length}</GroupLabel>
+        <GroupLabel>Ports in use · {portList.length}</GroupLabel>
         {shownPorts.length === 0 && (
-          <Empty>{ports?.scanning ? "Đang quét" : "Không có cổng nào đang lắng nghe"}</Empty>
+          <Empty>{ports?.scanning ? "Scanning" : "No ports are listening"}</Empty>
         )}
         {shownPorts.map((port) => (
           <Row
@@ -210,14 +210,14 @@ export function MenubarPanel() {
           />
         ))}
         {portList.length > shownPorts.length && (
-          <Row title="Xem tất cả trong HostSmith" accent onClick={() => void panelOpenMain("ports")} />
+          <Row title="Show all in HostSmith" accent onClick={() => void panelOpenMain("ports")} />
         )}
 
         <Separator />
 
-        <Row title="Mở HostSmith" trailing="⌘O" onClick={() => void panelOpenMain()} />
-        <Row title="Cài đặt" trailing="⌘," onClick={() => void panelOpenMain("settings")} />
-        <Row title="Thoát HostSmith" trailing="⌘Q" onClick={() => void panelQuit()} />
+        <Row title="Open HostSmith" trailing="⌘O" onClick={() => void panelOpenMain()} />
+        <Row title="Settings" trailing="⌘," onClick={() => void panelOpenMain("settings")} />
+        <Row title="Quit HostSmith" trailing="⌘Q" onClick={() => void panelQuit()} />
       </div>
     </div>
   );

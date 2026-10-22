@@ -66,7 +66,7 @@ export function Banner({
       {onDismiss && (
         <button
           onClick={onDismiss}
-          aria-label="Đóng"
+          aria-label="Close"
           className="-mr-1 rounded-md p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           <X className="size-4" />

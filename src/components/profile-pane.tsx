@@ -62,7 +62,7 @@ function keysAreTaken(event: KeyboardEvent) {
 /**
  * One profile, an entry per row. An environment is switched to from the
  * header, which writes `/etc/hosts` at once; a block has one switch for all
- * its entries. Entry edits wait for Áp dụng. Messages about the file float
+ * its entries. Entry edits wait for Apply. Messages about the file float
  * in the toaster, so the list keeps its place.
  *
  * The list is driven from the keyboard too: j/k move, Enter edits, Space
@@ -154,7 +154,7 @@ export function ProfilePane({ profile }: { profile: Profile }) {
         {active && (
           <span data-testid="profile-status" className="flex h-6 shrink-0 animate-fade-in items-center gap-1.5 rounded-md px-1 text-xs text-success">
             <span className="size-1.5 rounded-full bg-success" />
-            Đang bật
+            Active
           </span>
         )}
 
@@ -162,7 +162,7 @@ export function ProfilePane({ profile }: { profile: Profile }) {
           {dirty && <PendingPill count={hosts?.pendingCount ?? 0} testId="profile-pending" />}
           {dirty && (
             <Button size="sm" disabled={applying} onClick={apply} data-testid="profile-apply" className="animate-fade-in">
-              {applying ? "Đang ghi" : "Áp dụng"}
+              {applying ? "Writing" : "Apply"}
               <Kbd className="bg-primary-foreground/15 text-primary-foreground">⌘S</Kbd>
             </Button>
           )}
@@ -170,8 +170,8 @@ export function ProfilePane({ profile }: { profile: Profile }) {
             size="icon-sm"
             variant="ghost"
             onClick={() => setEntryForm({ entry: null })}
-            aria-label="Thêm entry"
-            title="Thêm entry"
+            aria-label="Add entry"
+            title="Add entry"
             data-testid="profile-add-entry"
             className="text-muted-foreground"
           >
@@ -182,8 +182,8 @@ export function ProfilePane({ profile }: { profile: Profile }) {
               <Button
                 variant="ghost"
                 size="icon-sm"
-                aria-label="Thêm thao tác"
-                title="Thêm thao tác"
+                aria-label="More actions"
+                title="More actions"
                 data-testid="profile-menu"
                 className="text-muted-foreground"
               >
@@ -193,7 +193,7 @@ export function ProfilePane({ profile }: { profile: Profile }) {
             <DropdownMenuContent align="end" className="min-w-56">
               <DropdownMenuItem onSelect={() => setEditingProfile(true)}>
                 <Pencil />
-                Sửa tên{profile.isExclusive ? " và màu" : ""}
+                {profile.isExclusive ? "Edit name and color" : "Edit name"}
               </DropdownMenuItem>
               {entries.length > 1 && (
                 <DropdownMenuItem
@@ -201,24 +201,24 @@ export function ProfilePane({ profile }: { profile: Profile }) {
                   onSelect={() => void run(hostsSetTagEnabled(profile.name, !allOn))}
                 >
                   <ToggleRight />
-                  {allOn ? "Tắt mọi entry" : "Bật mọi entry"}
+                  {allOn ? "Turn off all entries" : "Turn on all entries"}
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem onSelect={() => void run(profilesSetExclusive(profile.id, !profile.isExclusive))}>
                 <ArrowLeftRight />
-                {profile.isExclusive ? "Chuyển thành block" : "Chuyển thành môi trường"}
+                {profile.isExclusive ? "Convert to block" : "Convert to environment"}
               </DropdownMenuItem>
               <DropdownMenuItem
                 disabled={entries.length === 0}
                 onSelect={() => select({ kind: "hostsTag", name: profile.name })}
               >
                 <FileText />
-                Xem trong Hosts hệ thống
+                Show in System hosts
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" onSelect={() => setDeletingProfile(true)}>
                 <Trash2 />
-                Xoá {profile.isExclusive ? "môi trường" : "block"}
+                Delete {profile.isExclusive ? "environment" : "block"}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -232,7 +232,7 @@ export function ProfilePane({ profile }: { profile: Profile }) {
                 onClick={() => void run(hostsSwitchEnvironment(null, "ask"))}
                 data-testid="profile-deactivate"
               >
-                Tắt
+                Deactivate
               </Button>
             ) : (
               <Button
@@ -241,13 +241,13 @@ export function ProfilePane({ profile }: { profile: Profile }) {
                 disabled={entries.length === 0 || applying}
                 title={
                   entries.length === 0
-                    ? "Thêm entry để kích hoạt môi trường này"
-                    : "Bật môi trường này, tắt các môi trường khác và ghi /etc/hosts"
+                    ? "Add an entry to activate this environment"
+                    : "Turn this environment on, turn the others off and write /etc/hosts"
                 }
                 onClick={() => void run(hostsSwitchEnvironment(profile.id, "ask"))}
                 data-testid="profile-activate"
               >
-                Kích hoạt
+                Activate
               </Button>
             )
           ) : (
@@ -256,7 +256,7 @@ export function ProfilePane({ profile }: { profile: Profile }) {
               checked={active}
               disabled={entries.length === 0 || applying}
               onCheckedChange={(on) => void run(hostsSetTagEnabled(profile.name, on))}
-              aria-label={`${profile.name}, ${active ? "bật" : "tắt"}`}
+              aria-label={`${profile.name}, ${active ? "on" : "off"}`}
               data-testid="profile-block-toggle"
             />
           )}
@@ -266,12 +266,12 @@ export function ProfilePane({ profile }: { profile: Profile }) {
       <div ref={list} role="grid" aria-label="Entries" className="min-h-0 flex-1 overflow-y-auto">
         {entries.length === 0 ? (
           <PaneEmpty
-            title="Chưa có entry"
-            detail={`Thêm hostname vào ${profile.name} để ${profile.isExclusive ? "môi trường" : "block"} này có tác dụng.`}
+            title="No entries yet"
+            detail={`Add hostnames to ${profile.name} for this ${profile.isExclusive ? "environment" : "block"} to take effect.`}
           >
             <Button onClick={() => setEntryForm({ entry: null })}>
               <Plus />
-              Thêm entry
+              Add entry
             </Button>
           </PaneEmpty>
         ) : (
@@ -282,10 +282,10 @@ export function ProfilePane({ profile }: { profile: Profile }) {
               style={GRID}
             >
               {/* Holds the status column; a hidden label would leave the grid. */}
-              <span role="columnheader" aria-label="Bật" />
+              <span role="columnheader" aria-label="On" />
               <span role="columnheader">Hostname</span>
-              <span role="columnheader">Địa chỉ</span>
-              <span role="columnheader">Ghi chú</span>
+              <span role="columnheader">Address</span>
+              <span role="columnheader">Comment</span>
             </div>
             {entries.map((entry, index) => (
               <ContextMenu key={entry.id}>
@@ -316,9 +316,9 @@ export function ProfilePane({ profile }: { profile: Profile }) {
                       }}
                       onDoubleClick={(e) => e.stopPropagation()}
                       disabled={applying}
-                      aria-label={`${entry.hostname}, ${entry.enabled ? "bật" : "tắt"}`}
+                      aria-label={`${entry.hostname}, ${entry.enabled ? "on" : "off"}`}
                       aria-pressed={entry.enabled}
-                      title={entry.enabled ? "Tắt entry" : "Bật entry"}
+                      title={entry.enabled ? "Turn off entry" : "Turn on entry"}
                       data-testid={`profile-toggle-${entry.hostname}`}
                       className="-m-2 flex items-center justify-center rounded p-2 hover:[&>span]:border-success"
                     >
@@ -341,17 +341,17 @@ export function ProfilePane({ profile }: { profile: Profile }) {
                 <ContextMenuContent>
                   <ContextMenuItem onSelect={() => edit(entry)}>
                     <Pencil />
-                    Sửa
+                    Edit
                   </ContextMenuItem>
                   <ContextMenuItem onSelect={() => void run(hostsDuplicateEntry(entry.id))}>
                     <Copy />
-                    Nhân đôi
+                    Duplicate
                   </ContextMenuItem>
-                  <ContextMenuItem onSelect={() => copyHostname(entry)}>Sao chép hostname</ContextMenuItem>
+                  <ContextMenuItem onSelect={() => copyHostname(entry)}>Copy hostname</ContextMenuItem>
                   <ContextMenuSeparator />
                   <ContextMenuItem variant="destructive" onSelect={() => setDeletingEntry(entry)}>
                     <Trash2 />
-                    Xoá entry
+                    Delete entry
                   </ContextMenuItem>
                 </ContextMenuContent>
               </ContextMenu>
@@ -361,7 +361,7 @@ export function ProfilePane({ profile }: { profile: Profile }) {
               className="flex h-9 w-full items-center gap-4 px-5 text-left text-muted-foreground transition-colors duration-100 hover:bg-accent hover:text-foreground [&_svg]:size-3"
             >
               <Plus />
-              Thêm entry
+              Add entry
             </button>
           </>
         )}
@@ -377,9 +377,9 @@ export function ProfilePane({ profile }: { profile: Profile }) {
       <RemoveProfileDialog profile={deletingProfile ? profile : null} onClose={() => setDeletingProfile(false)} />
       <ConfirmDialog
         open={deletingEntry !== null}
-        title="Xoá entry?"
-        description={`Xoá ${deletingEntry?.hostname ?? ""} khỏi ${profile.name}. Không ghi gì vào /etc/hosts cho đến khi bạn nhấn Áp dụng.`}
-        confirmLabel="Xoá entry"
+        title="Delete entry?"
+        description={`Deletes ${deletingEntry?.hostname ?? ""} from ${profile.name}. Nothing is written to /etc/hosts until you press Apply.`}
+        confirmLabel="Delete entry"
         onConfirm={() => deletingEntry && void run(hostsDeleteEntry(deletingEntry.id))}
         onClose={() => setDeletingEntry(null)}
       />

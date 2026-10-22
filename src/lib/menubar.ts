@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import { profileStats } from "@/lib/hosts-view";
 import type { HostsSnapshot, ListeningPort, Outcome, PortsSnapshot, Profile } from "@/lib/hostsmith";
+import { plural } from "@/lib/utils";
 
 /** What the menu bar panel shows; the panel never scrolls, so lists are capped. */
 export const MAX_TOGGLES = 8;
@@ -21,8 +22,8 @@ export function activeTitle(hosts: HostsSnapshot | null): { title: string; profi
     const profile = hosts?.profiles.find((p) => p.id === active.id) ?? null;
     if (profile) return { title: profile.name, profile };
   }
-  if (active?.kind === "conflict") return { title: "Nhiều môi trường đang bật", profile: null };
-  return { title: "Không có môi trường", profile: null };
+  if (active?.kind === "conflict") return { title: "Several environments active", profile: null };
+  return { title: "No environment", profile: null };
 }
 
 export type BlockRow = { profile: Profile; mapping: string; on: boolean };
@@ -32,7 +33,7 @@ export function blockRows(hosts: HostsSnapshot | null): BlockRow[] {
   return profileStats(hosts).flatMap(({ profile, entryCount, enabledCount }) => {
     if (profile.isExclusive || entryCount === 0) return [];
     const only = entryCount === 1 ? hosts?.entries.find((e) => e.tag === profile.name) : undefined;
-    const mapping = only ? `${only.ip} → ${only.hostname}` : `${entryCount} entry`;
+    const mapping = only ? `${only.ip} → ${only.hostname}` : plural(entryCount, "entry", "entries");
     return [{ profile, mapping, on: enabledCount > 0 }];
   });
 }
@@ -48,12 +49,12 @@ export function userPorts(ports: PortsSnapshot | null): ListeningPort[] {
 }
 
 export function portTitle(port: ListeningPort): string {
-  return `${port.port}  ${port.process}${port.needsAttention ? " · không rõ" : ""}`;
+  return `${port.port}  ${port.process}${port.needsAttention ? " · unknown" : ""}`;
 }
 
 /** Who a port belongs to, or a pointer to the Ports pane when nobody is known. */
 export function portTrailing(port: ListeningPort): string {
-  if (port.needsAttention) return "Xem";
+  if (port.needsAttention) return "View";
   switch (port.owner.kind) {
     case "yours":
       return port.owner.name;
@@ -70,12 +71,12 @@ export function outcomeMessage(outcome: Outcome): string | null {
     case "refused":
       return pendingMessage(outcome.value);
     case "failed":
-      return `Không ghi được /etc/hosts: ${outcome.value}`;
+      return `Could not write /etc/hosts: ${outcome.value}`;
     default:
       return null;
   }
 }
 
 function pendingMessage(count: number): string {
-  return `Có ${count} thay đổi chưa áp dụng trong HostSmith. Mở HostSmith để áp dụng hoặc huỷ trước.`;
+  return `HostSmith has ${plural(count, "unapplied change")}. Open HostSmith to apply or discard ${count === 1 ? "it" : "them"} first.`;
 }

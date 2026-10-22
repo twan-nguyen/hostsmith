@@ -6,7 +6,7 @@ import type { ListeningPort, PortOwner } from "@/lib/hostsmith";
 import { abbreviateHome } from "@/lib/paths";
 import type { PortsFilter } from "@/store";
 
-/** "Dự án" shows ports a git project holds; "Người dùng" hides system services. */
+/** "Projects" shows ports a git project holds; "User" hides system services. */
 export function filterPorts(ports: ListeningPort[], filter: PortsFilter): ListeningPort[] {
   switch (filter) {
     case "user":
@@ -32,7 +32,7 @@ export function ownerLabel(owner: PortOwner): string {
     case "container":
       return owner.name ?? "Container";
     case "unknown":
-      return "Không rõ";
+      return "Unknown";
   }
 }
 
@@ -51,21 +51,21 @@ export function portDetail(port: ListeningPort, home: string | null): string {
   return [`pid ${port.pid}`, cwd ? abbreviateHome(cwd, home) : port.user].filter(Boolean).join(" · ");
 }
 
-/** How long ago the last scan finished: "vừa xong" under five seconds. */
+/** How long ago the last scan finished: "just now" under five seconds. */
 export function scanAge(scannedAt: number | null, now: number): string | null {
   if (scannedAt === null) return null;
   const seconds = Math.max(0, Math.floor((now - scannedAt) / 1000));
-  if (seconds < 5) return "vừa xong";
-  if (seconds < 60) return `${seconds} giây trước`;
+  if (seconds < 5) return "just now";
+  if (seconds < 60) return `${seconds} sec ago`;
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes} phút trước`;
-  return `${Math.floor(minutes / 60)} giờ trước`;
+  if (minutes < 60) return `${minutes} min ago`;
+  return `${Math.floor(minutes / 60)} hr ago`;
 }
 
-/** When the list was read: "quét vừa xong". */
+/** When the list was read: "Scanned just now". */
 export function portsSubtitle(scannedAt: number | null, now: number): string {
   const age = scanAge(scannedAt, now);
-  return age ? `Quét ${age}` : "";
+  return age ? `Scanned ${age}` : "";
 }
 
 export const localhostUrl = (port: number) => `http://localhost:${port}`;

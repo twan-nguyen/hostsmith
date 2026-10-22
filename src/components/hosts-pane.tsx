@@ -46,7 +46,7 @@ function initialText(hosts: HostsSnapshot | null) {
 
 /**
  * `/etc/hosts` as text. The editor is the working copy: typing is handed to
- * the model as a draft, so edits made elsewhere fold it in, and Áp dụng
+ * the model as a draft, so edits made elsewhere fold it in, and Apply
  * writes the editor's text as it is.
  */
 export function HostsPane({ block }: { block?: string }) {
@@ -179,7 +179,7 @@ export function HostsPane({ block }: { block?: string }) {
     <Panel>
       <PanelHeader>
         <span className="text-muted-foreground [&_svg]:size-4">{block ? <Box /> : <FileText />}</span>
-        <h1 className="truncate font-medium">{block ?? "Hosts hệ thống"}</h1>
+        <h1 className="truncate font-medium">{block ?? "System hosts"}</h1>
         <span className="shrink-0 font-mono text-xs text-muted-foreground">/etc/hosts</span>
         {hosts?.dirty && <PendingPill count={hosts.pendingCount} testId="hosts-pending" />}
 
@@ -187,7 +187,7 @@ export function HostsPane({ block }: { block?: string }) {
           value={query}
           onChange={setQuery}
           onEnter={() => editor.current?.find(query)}
-          placeholder="Tìm entry"
+          placeholder="Search entries"
           testId="hosts-search-field"
           className="ml-auto w-60"
         />
@@ -196,8 +196,8 @@ export function HostsPane({ block }: { block?: string }) {
           size="icon-sm"
           variant="ghost"
           onClick={addEntry}
-          aria-label="Thêm entry"
-          title="Thêm entry"
+          aria-label="Add entry"
+          title="Add entry"
           data-testid="hosts-add-entry"
           className="text-muted-foreground"
         >
@@ -209,8 +209,8 @@ export function HostsPane({ block }: { block?: string }) {
             <Button
               variant="ghost"
               size="icon-sm"
-              aria-label="Thêm thao tác"
-              title="Thêm thao tác"
+              aria-label="More actions"
+              title="More actions"
               data-testid="hosts-menu"
               className="text-muted-foreground"
             >
@@ -220,7 +220,7 @@ export function HostsPane({ block }: { block?: string }) {
           <DropdownMenuContent align="end" className="min-w-52">
             <DropdownMenuItem disabled={applying} onSelect={() => void run(hostsBackup())}>
               <HardDriveDownload />
-              Sao lưu /etc/hosts
+              Back up /etc/hosts
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -229,7 +229,7 @@ export function HostsPane({ block }: { block?: string }) {
               onSelect={() => void discard()}
             >
               <Undo2 />
-              Huỷ thay đổi
+              Discard changes
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -241,7 +241,7 @@ export function HostsPane({ block }: { block?: string }) {
           disabled={!hosts || applying || !canDiscard}
           data-testid="hosts-apply"
         >
-          {applying ? "Đang ghi" : "Áp dụng"}
+          {applying ? "Writing" : "Apply"}
           {canDiscard && <Kbd className="bg-primary-foreground/15 text-primary-foreground">⌘S</Kbd>}
         </Button>
       </PanelHeader>

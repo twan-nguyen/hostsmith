@@ -122,10 +122,10 @@ fn spotlight_finds(id: &str) -> bool {
 fn existing(path: &str) -> Result<PathBuf, String> {
     let path = PathBuf::from(path);
     if !path.is_absolute() {
-        return Err(format!("Đường dẫn không hợp lệ: {}", path.display()));
+        return Err(format!("Invalid path: {}", path.display()));
     }
     if !path.exists() {
-        return Err(format!("Không tìm thấy {}", path.display()));
+        return Err(format!("Could not find {}", path.display()));
     }
     Ok(path)
 }
@@ -143,13 +143,13 @@ enum Target {
 fn openable(path: &str, target: Target) -> Result<PathBuf, String> {
     let path = existing(path)?;
     let metadata =
-        std::fs::metadata(&path).map_err(|e| format!("Không đọc được {}: {e}", path.display()))?;
+        std::fs::metadata(&path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
     match target {
         Target::Directory if !metadata.is_dir() => {
-            Err(format!("{} không phải thư mục", path.display()))
+            Err(format!("{} is not a folder", path.display()))
         }
         Target::FileOrDirectory if !metadata.is_dir() && !metadata.is_file() => {
-            Err(format!("{} không phải file hay thư mục", path.display()))
+            Err(format!("{} is not a file or folder", path.display()))
         }
         _ => Ok(path),
     }
@@ -166,7 +166,7 @@ fn open(args: &[&OsStr]) -> Result<(), String> {
     }
     let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
     Err(if stderr.is_empty() {
-        format!("open thoát với mã {}", out.status.code().unwrap_or(-1))
+        format!("open exited with code {}", out.status.code().unwrap_or(-1))
     } else {
         stderr
     })
@@ -180,7 +180,7 @@ fn open_with(app: Option<&App>, missing: &str, path: &str, target: Target) -> Re
         OsStr::new(&app.bundle_id),
         path.as_os_str(),
     ])
-    .map_err(|e| format!("Không mở được {} bằng {}: {e}", path.display(), app.name))
+    .map_err(|e| format!("Could not open {} with {}: {e}", path.display(), app.name))
 }
 
 #[tauri::command]
@@ -193,7 +193,7 @@ pub async fn tools_open_in_terminal(path: String) -> Result<(), String> {
     blocking(move || {
         open_with(
             detected().terminal.as_ref(),
-            "Không tìm thấy ứng dụng terminal",
+            "No terminal app found",
             &path,
             Target::Directory,
         )
@@ -206,7 +206,7 @@ pub async fn tools_open_in_editor(path: String) -> Result<(), String> {
     blocking(move || {
         open_with(
             detected().editor.as_ref(),
-            "Không tìm thấy trình soạn thảo code",
+            "No code editor found",
             &path,
             Target::FileOrDirectory,
         )
@@ -219,7 +219,7 @@ pub async fn tools_reveal_in_finder(path: String) -> Result<(), String> {
     blocking(move || {
         let path = existing(&path)?;
         open(&[OsStr::new("-R"), path.as_os_str()])
-            .map_err(|e| format!("Không mở được Finder: {e}"))
+            .map_err(|e| format!("Could not open Finder: {e}"))
     })
     .await
 }
@@ -228,14 +228,14 @@ pub async fn tools_reveal_in_finder(path: String) -> Result<(), String> {
 pub async fn tools_open_chrome_dns() -> Result<(), String> {
     blocking(|| {
         if !detected().chrome {
-            return Err("Chưa cài Google Chrome".into());
+            return Err("Google Chrome is not installed".into());
         }
         open(&[
             OsStr::new("-b"),
             OsStr::new(CHROME),
             OsStr::new(CHROME_DNS_PAGE),
         ])
-        .map_err(|e| format!("Không mở được Chrome: {e}"))
+        .map_err(|e| format!("Could not open Chrome: {e}"))
     })
     .await
 }
@@ -303,13 +303,8 @@ mod tests {
     #[test]
     fn says_which_tool_is_missing() {
         assert_eq!(
-            open_with(
-                None,
-                "Không tìm thấy ứng dụng terminal",
-                "/tmp",
-                Target::Directory
-            ),
-            Err("Không tìm thấy ứng dụng terminal".into())
+            open_with(None, "No terminal app found", "/tmp", Target::Directory),
+            Err("No terminal app found".into())
         );
     }
 

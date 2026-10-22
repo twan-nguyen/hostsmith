@@ -23,7 +23,7 @@ fn write_script(len: usize) -> String {
         "t=$(/usr/bin/mktemp /private/etc/hosts.hostsmith.XXXXXX) || exit $?; \
          /bin/cat > \"$t\" || {{ /bin/rm -f \"$t\"; exit 1; }}; \
          [ \"$(/usr/bin/wc -c < \"$t\" | /usr/bin/tr -d ' ')\" = \"{len}\" ] \
-         || {{ /bin/rm -f \"$t\"; echo 'nội dung nhận được không đủ' >&2; exit 1; }}; \
+         || {{ /bin/rm -f \"$t\"; echo 'the received content was incomplete' >&2; exit 1; }}; \
          /bin/chmod 644 \"$t\" && /usr/sbin/chown root:wheel \"$t\" && /bin/mv -f \"$t\" {HOSTS_PATH} \
          || {{ /bin/rm -f \"$t\"; exit 1; }}; \
          /usr/bin/dscacheutil -flushcache; /usr/bin/killall -HUP mDNSResponder 2>/dev/null; exit 0"

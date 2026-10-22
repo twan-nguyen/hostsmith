@@ -106,19 +106,19 @@ function AppNav() {
     <ContextMenuContent>
       {profile.isExclusive &&
         (active ? (
-          <ContextMenuItem onSelect={() => switchTo(null)}>Tắt {profile.name}</ContextMenuItem>
+          <ContextMenuItem onSelect={() => switchTo(null)}>Deactivate {profile.name}</ContextMenuItem>
         ) : (
           <ContextMenuItem disabled={entryCount === 0} onSelect={() => switchTo(profile)}>
-            Chuyển sang {profile.name}
+            Switch to {profile.name}
           </ContextMenuItem>
         ))}
-      <ContextMenuItem onSelect={() => setProfileDialog({ profile, exclusive: profile.isExclusive })}>Sửa</ContextMenuItem>
+      <ContextMenuItem onSelect={() => setProfileDialog({ profile, exclusive: profile.isExclusive })}>Edit</ContextMenuItem>
       <ContextMenuItem onSelect={() => void run(profilesSetExclusive(profile.id, !profile.isExclusive))}>
-        {profile.isExclusive ? "Chuyển thành block" : "Chuyển thành môi trường"}
+        {profile.isExclusive ? "Convert to block" : "Convert to environment"}
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem variant="destructive" onSelect={() => setDeleting(profile)}>
-        Xoá
+        Delete
       </ContextMenuItem>
     </ContextMenuContent>
   );
@@ -134,7 +134,7 @@ function AppNav() {
             Host<span className="font-medium text-sidebar-accent-foreground/35">Smith</span>
           </span>
         </div>
-        <IconButton label="Tìm kiếm (⌘K)" onClick={() => setPaletteOpen(true)}>
+        <IconButton label="Search (⌘K)" onClick={() => setPaletteOpen(true)}>
           <Search />
         </IconButton>
       </div>
@@ -144,15 +144,15 @@ function AppNav() {
           <NavItem
             testId="sidebar-system-hosts"
             icon={<FileText />}
-            label="Hosts hệ thống"
+            label="System hosts"
             active={isSelected({ kind: "systemHosts" })}
             onClick={() => select({ kind: "systemHosts" })}
-            trailing={hosts?.dirty ? <Dot className="bg-warning" label="Có thay đổi chưa áp dụng" /> : null}
+            trailing={hosts?.dirty ? <Dot className="bg-warning" label="Unapplied changes" /> : null}
           />
           <NavItem
             testId="sidebar-ports"
             icon={<Cable />}
-            label="Cổng"
+            label="Ports"
             active={isSelected({ kind: "ports" })}
             onClick={() => select({ kind: "ports" })}
             trailing={portCount > 0 ? <Count value={portCount} /> : null}
@@ -161,11 +161,11 @@ function AppNav() {
 
         <Section
           id="environments"
-          title="Môi trường"
+          title="Environments"
           onAdd={() => setProfileDialog({ profile: null, exclusive: true })}
-          addLabel="Thêm môi trường"
+          addLabel="Add environment"
         >
-          {environments.length === 0 && <Hint>Chưa có môi trường nào</Hint>}
+          {environments.length === 0 && <Hint>No environments yet</Hint>}
           {environments.map(({ profile, entryCount, active }) => (
             <ContextMenu key={profile.id}>
               <ContextMenuTrigger asChild>
@@ -177,7 +177,7 @@ function AppNav() {
                   onClick={() => select({ kind: "profile", id: profile.id })}
                   trailing={
                     active ? (
-                      <Dot className="bg-success" label="Đang bật" />
+                      <Dot className="bg-success" label="Active" />
                     ) : profile.shortcutNumber ? (
                       <Kbd className="opacity-0 transition-opacity group-hover/item:opacity-100">
                         ⌘{profile.shortcutNumber}
@@ -193,11 +193,11 @@ function AppNav() {
 
         <Section
           id="blocks"
-          title="Block"
+          title="Blocks"
           onAdd={() => setProfileDialog({ profile: null, exclusive: false })}
-          addLabel="Thêm block"
+          addLabel="Add block"
         >
-          {blocks.length === 0 && orphanTags.length === 0 && <Hint>Chưa có block nào</Hint>}
+          {blocks.length === 0 && orphanTags.length === 0 && <Hint>No blocks yet</Hint>}
           {blocks.map(({ profile, entryCount, enabledCount }) => (
             <ContextMenu key={profile.id}>
               <ContextMenuTrigger asChild>
@@ -207,7 +207,7 @@ function AppNav() {
                   label={profile.name}
                   active={isSelected({ kind: "profile", id: profile.id })}
                   onClick={() => select({ kind: "profile", id: profile.id })}
-                  trailing={enabledCount > 0 ? <Dot className="bg-success" label="Đang bật" /> : null}
+                  trailing={enabledCount > 0 ? <Dot className="bg-success" label="Active" /> : null}
                 />
               </ContextMenuTrigger>
               {profileMenu(profile, enabledCount > 0, entryCount)}
@@ -259,7 +259,7 @@ function EnvironmentSwitcher({
   const applying = useStore((s) => s.hosts?.applying ?? false);
   const on = environments.filter((e) => e.active);
   const current = on.length === 1 ? on[0].profile : null;
-  const label = applying ? "Đang ghi /etc/hosts" : current ? current.name : on.length > 1 ? `${on.length} môi trường cùng bật` : "Không bật môi trường";
+  const label = applying ? "Writing /etc/hosts" : current ? current.name : on.length > 1 ? `${on.length} environments active` : "No active environment";
 
   return (
     <DropdownMenu>
@@ -283,13 +283,13 @@ function EnvironmentSwitcher({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top" align="start" className="w-(--radix-dropdown-menu-trigger-width) min-w-56">
-        <DropdownMenuLabel>Môi trường</DropdownMenuLabel>
-        {environments.length === 0 && <DropdownMenuItem disabled>Chưa có môi trường nào</DropdownMenuItem>}
+        <DropdownMenuLabel>Environments</DropdownMenuLabel>
+        {environments.length === 0 && <DropdownMenuItem disabled>No environments yet</DropdownMenuItem>}
         {environments.map(({ profile, entryCount, active }) => (
           <DropdownMenuItem
             key={profile.id}
             disabled={entryCount === 0 || applying}
-            title={entryCount === 0 ? "Chưa có entry" : undefined}
+            title={entryCount === 0 ? "No entries yet" : undefined}
             onSelect={() => !active && onSwitch(profile)}
           >
             <ProfileAvatar profile={profile} />
@@ -300,13 +300,13 @@ function EnvironmentSwitcher({
         ))}
         <DropdownMenuItem disabled={on.length === 0 || applying} onSelect={() => onSwitch(null)}>
           <Power />
-          <span className="flex-1">Tắt môi trường</span>
+          <span className="flex-1">Deactivate environment</span>
           <DropdownMenuShortcut>⌘0</DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={onSettings}>
           <Settings />
-          Cài đặt
+          Settings
           <DropdownMenuShortcut>⌘,</DropdownMenuShortcut>
         </DropdownMenuItem>
       </DropdownMenuContent>
@@ -324,7 +324,7 @@ function SettingsNav() {
         className="flex h-7 items-center gap-2 rounded-md px-2 text-muted-foreground transition-colors duration-100 hover:bg-sidebar-accent hover:text-sidebar-foreground [&_svg]:size-4"
       >
         <ArrowLeft />
-        Quay lại
+        Back
       </button>
     </div>
   );

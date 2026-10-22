@@ -74,19 +74,20 @@ describe("verificationSummary", () => {
   it("counts the hostnames that resolved", () => {
     const summary = verificationSummary([ok, { ...ok, hostname: "web.test" }]);
     expect(summary.tone).toBe("success");
-    expect(summary.title).toBe("2 hostname vừa ghi phân giải đúng");
+    expect(summary.title).toBe("2 hostnames resolved as written");
+    expect(verificationSummary([ok]).title).toBe("1 hostname resolved as written");
   });
 
   it("lists up to four mismatches, then an ellipsis", () => {
     const results = [ok, miss("a.test", ["10.0.0.1", "10.0.0.2"]), miss("b.test"), miss("c.test"), miss("d.test"), miss("e.test")];
     const summary = verificationSummary(results);
     expect(summary.tone).toBe("warning");
-    expect(summary.title).toBe("5 trong 6 hostname vừa ghi chưa phân giải như /etc/hosts");
+    expect(summary.title).toBe("5 of 6 hostnames did not resolve as written in /etc/hosts");
     expect(summary.lines).toEqual([
-      "a.test → 10.0.0.1, 10.0.0.2 (mong đợi 127.0.0.1)",
-      "b.test → không phân giải (mong đợi 127.0.0.1)",
-      "c.test → không phân giải (mong đợi 127.0.0.1)",
-      "d.test → không phân giải (mong đợi 127.0.0.1)",
+      "a.test → 10.0.0.1, 10.0.0.2 (expected 127.0.0.1)",
+      "b.test → unresolved (expected 127.0.0.1)",
+      "c.test → unresolved (expected 127.0.0.1)",
+      "d.test → unresolved (expected 127.0.0.1)",
       "…",
     ]);
   });
@@ -99,9 +100,9 @@ describe("verificationSummary", () => {
 
 describe("profileSubtitle", () => {
   it("names the kind, then counts entries and how many are on", () => {
-    expect(profileSubtitle(env, 3, 2)).toBe("Môi trường · 3 entry · 2 bật");
-    expect(profileSubtitle(block, 1, 0)).toBe("Block · 1 entry · 0 bật");
-    expect(profileSubtitle(env, 0, 0)).toBe("Môi trường · 0 entry");
+    expect(profileSubtitle(env, 3, 2)).toBe("Environment · 3 entries · 2 on");
+    expect(profileSubtitle(block, 1, 0)).toBe("Block · 1 entry · 0 on");
+    expect(profileSubtitle(env, 0, 0)).toBe("Environment · 0 entries");
   });
 });
 

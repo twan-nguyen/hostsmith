@@ -15,10 +15,10 @@ use super::verify::{self, Verification};
 use crate::platform::RunOutcome;
 use crate::profiles::{self, Profile, ProfileColor, ProfileStore};
 use crate::toast::Toasts;
-use crate::util::changed_lines;
+use crate::util::{changed_lines, counted};
 
-pub const BUSY: &str = "HostSmith đang ghi /etc/hosts. Thử lại khi xong.";
-pub const STALE_EDITOR: &str = "Nội dung hosts vừa đổi nên chưa ghi. Trình soạn thảo đã lấy nội dung mới, hãy xem lại rồi áp dụng.";
+pub const BUSY: &str = "HostSmith is writing /etc/hosts. Try again when it finishes.";
+pub const STALE_EDITOR: &str = "The hosts content changed, so nothing was written. The editor now shows the new content. Review it, then apply again.";
 
 /// The fields of the entry form.
 #[derive(Debug, Clone, Default, serde::Deserialize)]
@@ -189,7 +189,7 @@ impl Hosts {
     pub fn load_failed(&mut self, error: &str) {
         self.load_error = Some(error.to_string());
         self.show_toast(
-            format!("Không đọc được /etc/hosts: {error}"),
+            format!("Could not read /etc/hosts: {error}"),
             ToastKind::Error,
         );
     }
@@ -371,7 +371,7 @@ impl Hosts {
         validate(&mut entry, input)?;
         self.begin_edit()?;
         self.add_tag(&entry.tag);
-        self.show_toast(format!("Đã thêm {}", entry.hostname), ToastKind::Success);
+        self.show_toast(format!("Added {}", entry.hostname), ToastKind::Success);
         self.entries.push(entry);
         Ok(())
     }
@@ -421,7 +421,7 @@ impl Hosts {
         self.entries
             .iter()
             .position(|e| e.id == id)
-            .ok_or_else(|| "Không tìm thấy entry".to_string())
+            .ok_or_else(|| "Entry not found".to_string())
     }
 
     /// Whether any entry already answers for `hostname`, aliases included.
@@ -473,7 +473,10 @@ impl Hosts {
         {
             entry.enabled = enabled;
         }
-        let toast = format!("Đã {} block {name}", if enabled { "bật" } else { "tắt" });
+        let toast = format!(
+            "{} block {name}",
+            if enabled { "Enabled" } else { "Disabled" }
+        );
         Step::Write(self.begin_switch_write(before, toast))
     }
 
@@ -539,7 +542,7 @@ impl Hosts {
     fn check_name(&self, name: &str, except: Option<Uuid>) -> Result<String, String> {
         let trimmed = name.trim().to_string();
         if !profiles::is_valid_name(&trimmed) {
-            return Err("Tên không được để trống và không chứa [ hoặc ]".into());
+            return Err("Name must not be empty or contain [ or ]".into());
         }
         let lower = trimmed.to_lowercase();
         if self
@@ -547,7 +550,7 @@ impl Hosts {
             .iter()
             .any(|p| Some(p.id) != except && p.name.to_lowercase() == lower)
         {
-            return Err(format!("Đã có profile tên {trimmed}"));
+            return Err(format!("A profile named {trimmed} already exists"));
         }
         Ok(trimmed)
     }
@@ -613,13 +616,13 @@ impl Hosts {
         self.profiles
             .iter()
             .position(|p| p.id == id)
-            .ok_or_else(|| "Không tìm thấy profile".to_string())
+            .ok_or_else(|| "Profile not found".to_string())
     }
 
     fn save_profiles(&mut self) {
         if let Err(error) = self.store.save(&self.profiles) {
             self.show_toast(
-                format!("Không lưu được profiles.json: {error}"),
+                format!("Could not save profiles.json: {error}"),
                 ToastKind::Error,
             );
         }
@@ -633,11 +636,11 @@ impl Hosts {
             Some(BUSY.to_string())
         } else if self.load_error.is_some() {
             Some(
-                "Không đọc được /etc/hosts nên HostSmith không ghi đè nó. Tải lại để thử lại."
+                "Could not read /etc/hosts, so HostSmith will not overwrite it. Reload to try again."
                     .into(),
             )
         } else if self.external_change {
-            Some("/etc/hosts vừa đổi bên ngoài HostSmith. Tải lại trước khi áp dụng.".into())
+            Some("/etc/hosts changed outside HostSmith. Reload before applying.".into())
         } else {
             None
         }
@@ -688,7 +691,7 @@ impl Hosts {
     }
 
     fn nothing_to_apply(&mut self) -> Step {
-        self.show_toast("Không có gì để áp dụng".into(), ToastKind::Info);
+        self.show_toast("Nothing to apply".into(), ToastKind::Info);
         Step::Done(Outcome::NothingToDo)
     }
 
@@ -742,7 +745,10 @@ impl Hosts {
                 }
                 self.history.clear_redo();
                 let message = job.success_toast.unwrap_or_else(|| {
-                    format!("Đã ghi {} entry vào /etc/hosts", self.entries.len())
+                    format!(
+                        "Wrote {} to /etc/hosts",
+                        counted(self.entries.len(), "entry", "entries")
+                    )
                 });
                 self.show_toast(message, ToastKind::Success);
                 Outcome::Written
@@ -755,7 +761,7 @@ impl Hosts {
                 let error = failed.failure().unwrap_or_default();
                 self.roll_back(job.rollback);
                 self.show_toast(
-                    format!("Không ghi được /etc/hosts: {error}"),
+                    format!("Could not write /etc/hosts: {error}"),
                     ToastKind::Error,
                 );
                 Outcome::Failed(error)
@@ -799,8 +805,8 @@ impl Hosts {
 /// with a newline would write extra lines, and spaces or `#` in an address or
 /// hostname would split it into other fields on the next read.
 fn validate(entry: &mut HostEntry, input: EntryInput) -> Result<(), String> {
-    entry.ip = token(&input.ip, "IP", "Cần một địa chỉ IP")?;
-    entry.hostname = token(&input.hostname, "Hostname", "Cần một hostname")?;
+    entry.ip = token(&input.ip, "IP", "An IP address is required")?;
+    entry.hostname = token(&input.hostname, "Hostname", "A hostname is required")?;
     if let Some(aliases) = input.aliases {
         entry.aliases = aliases
             .iter()
@@ -810,13 +816,13 @@ fn validate(entry: &mut HostEntry, input: EntryInput) -> Result<(), String> {
     }
     let comment = input.comment.trim();
     if comment.chars().any(char::is_control) {
-        return Err("Ghi chú phải nằm trên một dòng".into());
+        return Err("Comment must be on one line".into());
     }
     entry.comment = comment.to_string();
     entry.tag = match input.tag.as_deref().map(str::trim) {
         None | Some("") => None,
         Some(tag) if profiles::is_valid_name(tag) => Some(tag.to_string()),
-        Some(_) => return Err("Tên block không được chứa [ hoặc ]".into()),
+        Some(_) => return Err("Block name must not contain [ or ]".into()),
     };
     Ok(())
 }
@@ -830,7 +836,7 @@ fn token(value: &str, label: &str, missing: &str) -> Result<String, String> {
         .chars()
         .any(|c| c.is_whitespace() || c.is_control() || c == '#')
     {
-        return Err(format!("{label} không được chứa khoảng trắng hoặc #"));
+        return Err(format!("{label} must not contain spaces or #"));
     }
     Ok(value.to_string())
 }
@@ -1136,36 +1142,36 @@ pub(super) mod tests {
     fn fields_that_would_break_the_file_are_refused() {
         let (mut h, _) = hosts(BASE, vec![]);
         let cases = [
-            (input("", "a.test"), "Cần một địa chỉ IP"),
-            (input("127.0.0.1", " "), "Cần một hostname"),
+            (input("", "a.test"), "An IP address is required"),
+            (input("127.0.0.1", " "), "A hostname is required"),
             (
                 input("127.0.0.1 1", "a.test"),
-                "IP không được chứa khoảng trắng hoặc #",
+                "IP must not contain spaces or #",
             ),
             (
                 input("127.0.0.1", "a.test#b"),
-                "Hostname không được chứa khoảng trắng hoặc #",
+                "Hostname must not contain spaces or #",
             ),
             (
                 EntryInput {
                     aliases: Some(vec!["b c".into()]),
                     ..input("127.0.0.1", "a.test")
                 },
-                "Alias không được chứa khoảng trắng hoặc #",
+                "Alias must not contain spaces or #",
             ),
             (
                 EntryInput {
                     comment: "x\n0.0.0.0 bank.example".into(),
                     ..input("127.0.0.1", "a.test")
                 },
-                "Ghi chú phải nằm trên một dòng",
+                "Comment must be on one line",
             ),
             (
                 EntryInput {
                     tag: Some("T]\nzz".into()),
                     ..input("127.0.0.1", "a.test")
                 },
-                "Tên block không được chứa [ hoặc ]",
+                "Block name must not contain [ or ]",
             ),
         ];
         for (input, message) in cases {
@@ -1237,7 +1243,7 @@ pub(super) mod tests {
         assert_eq!(
             h.add_profile("release", ProfileColor::Blue, false)
                 .unwrap_err(),
-            "Đã có profile tên release"
+            "A profile named release already exists"
         );
         assert!(h.add_profile("", ProfileColor::Blue, false).is_err());
         assert!(
@@ -1337,14 +1343,14 @@ pub(super) mod tests {
         complete(&mut h, Step::Write(job), RunOutcome::Ok);
         assert_eq!(h.entries.iter().map(|e| e.id).collect::<Vec<_>>(), ids);
         assert!(!h.dirty());
-        assert_eq!(h.toast().unwrap().message, "Đã ghi 2 entry vào /etc/hosts");
+        assert_eq!(h.toast().unwrap().message, "Wrote 2 entries to /etc/hosts");
     }
 
     #[test]
     fn a_clean_model_has_nothing_to_apply() {
         let (mut h, _) = hosts(BASE, vec![]);
         assert!(matches!(h.begin_apply(), Step::Done(Outcome::NothingToDo)));
-        assert_eq!(h.toast().unwrap().message, "Không có gì để áp dụng");
+        assert_eq!(h.toast().unwrap().message, "Nothing to apply");
         h.clear_toast();
         assert!(matches!(
             h.begin_apply_raw(BASE, &h.serialize()),
@@ -1412,7 +1418,7 @@ pub(super) mod tests {
         assert_eq!(toast.kind, ToastKind::Error);
         assert_eq!(
             toast.message,
-            "Không ghi được /etc/hosts: quyền quản trị bị từ chối (mã -60005)"
+            "Could not write /etc/hosts: admin rights were denied (code -60005)"
         );
     }
 
