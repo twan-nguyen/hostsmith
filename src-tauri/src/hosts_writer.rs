@@ -1,0 +1,155 @@
+//! Replaces the hosts file as root. The content goes to the root script on
+//! its standard input, so no text the user typed ever becomes part of a
+//! command, and nothing is staged in a file another process could swap.
+
+use std::path::{Path, PathBuf};
+
+use crate::platform::{HOSTS_PATH, PrivilegedRunner, RunOutcome};
+
+/// Replaces the hosts file with `content` and flushes the resolver caches.
+pub fn write(runner: &dyn PrivilegedRunner, content: &str) -> RunOutcome {
+    let bytes = content.as_bytes();
+    runner.run_with_input(&write_script(bytes.len()), bytes)
+}
+
+/// The content goes to a root-owned file beside the hosts file first, and
+/// only a complete copy is renamed over it: if HostSmith died mid-stream, `cat`
+/// would see an early end of input, and writing straight into the hosts file
+/// would leave it cut short. The status reflects the write alone; once the
+/// file is in place a failed cache flush must still read as written, or a
+/// switch would roll the model back while the disk holds the new content.
+fn write_script(len: usize) -> String {
+    format!(
+        "t=$(/usr/bin/mktemp /private/etc/hosts.hostsmith.XXXXXX) || exit $?; \
+         /bin/cat > \"$t\" || {{ /bin/rm -f \"$t\"; exit 1; }}; \
+         [ \"$(/usr/bin/wc -c < \"$t\" | /usr/bin/tr -d ' ')\" = \"{len}\" ] \
+         || {{ /bin/rm -f \"$t\"; echo 'nội dung nhận được không đủ' >&2; exit 1; }}; \
+         /bin/chmod 644 \"$t\" && /usr/sbin/chown root:wheel \"$t\" && /bin/mv -f \"$t\" {HOSTS_PATH} \
+         || {{ /bin/rm -f \"$t\"; exit 1; }}; \
+         /usr/bin/dscacheutil -flushcache; /usr/bin/killall -HUP mDNSResponder 2>/dev/null; exit 0"
+    )
+}
+
+/// Single-quotes `value` for `sh`, closing and reopening the quotes around
+/// each `'` it holds.
+fn quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', r"'\''"))
+}
+
+/// Where a backup of the hosts file taken at `now` goes, e.g.
+/// `/etc/hosts.backup.2026-10-21T06-05-00.123Z`. Colons are replaced because
+/// Finder shows them as slashes; the milliseconds keep two backups in the
+/// same second apart.
+pub fn backup_path(now: jiff::Timestamp) -> PathBuf {
+    let stamp = now.strftime("%Y-%m-%dT%H-%M-%S%.3fZ");
+    PathBuf::from(format!("{HOSTS_PATH}.backup.{stamp}"))
+}
+
+/// The backup script. The name holds only digits and separators; it is quoted
+/// anyway, so every path in a root script is.
+pub fn backup_script(path: &Path) -> String {
+    format!("/bin/cp {HOSTS_PATH} {}", quote(&path.to_string_lossy()))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use super::*;
+
+    /// Records scripts and their input instead of running anything.
+    #[derive(Default)]
+    struct Recorder {
+        runs: Mutex<Vec<(String, Vec<u8>)>>,
+    }
+
+    impl PrivilegedRunner for Recorder {
+        fn run_with_input(&self, script: &str, input: &[u8]) -> RunOutcome {
+            self.runs
+                .lock()
+                .unwrap()
+                .push((script.to_string(), input.to_vec()));
+            RunOutcome::Ok
+        }
+    }
+
+    /// Every command a root script runs is named by its absolute path, so the
+    /// PATH it runs under never decides which program that is.
+    fn commands_are_absolute(script: &str) -> bool {
+        const TOOLS: [&str; 11] = [
+            "cat",
+            "rm",
+            "mv",
+            "cp",
+            "chmod",
+            "chown",
+            "mktemp",
+            "wc",
+            "tr",
+            "dscacheutil",
+            "killall",
+        ];
+        let words: Vec<&str> = script
+            .split(|c: char| c.is_whitespace() || "(){};|&\"'".contains(c))
+            .filter(|w| !w.is_empty())
+            .collect();
+        words.iter().all(|word| !TOOLS.contains(word))
+    }
+
+    #[test]
+    fn quotes_single_quotes_for_sh() {
+        assert_eq!(quote("/tmp/a b"), "'/tmp/a b'");
+        assert_eq!(quote("/tmp/it's"), r"'/tmp/it'\''s'");
+    }
+
+    #[test]
+    fn the_script_replaces_the_file_only_with_a_complete_copy() {
+        let script = write_script(1234);
+        assert!(
+            script.starts_with(
+                "t=$(/usr/bin/mktemp /private/etc/hosts.hostsmith.XXXXXX) || exit $?;"
+            )
+        );
+        assert!(script.contains("= \"1234\" ]"), "the byte count is checked");
+        assert!(script.contains("/bin/mv -f \"$t\" /etc/hosts"));
+        assert!(
+            script.ends_with("/usr/bin/killall -HUP mDNSResponder 2>/dev/null; exit 0"),
+            "a failed flush does not fail the write"
+        );
+        assert!(commands_are_absolute(&script));
+        assert!(commands_are_absolute(&backup_script(Path::new(
+            "/etc/hosts.backup.x"
+        ))));
+        assert!(!commands_are_absolute("cp a b; exit 0"));
+    }
+
+    #[test]
+    fn sends_the_content_on_standard_input() {
+        let recorder = Recorder::default();
+        assert_eq!(write(&recorder, "127.0.0.1\tapi.test\n"), RunOutcome::Ok);
+        let runs = recorder.runs.lock().unwrap();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].0, write_script(19));
+        assert_eq!(runs[0].1, b"127.0.0.1\tapi.test\n");
+    }
+
+    #[test]
+    fn names_backups_after_the_utc_time_to_the_millisecond_without_colons() {
+        let now: jiff::Timestamp = "2026-10-21T06:05:00.123Z".parse().unwrap();
+        assert_eq!(
+            backup_path(now),
+            PathBuf::from("/etc/hosts.backup.2026-10-21T06-05-00.123Z")
+        );
+        assert_eq!(
+            backup_script(&backup_path(now)),
+            "/bin/cp /etc/hosts '/etc/hosts.backup.2026-10-21T06-05-00.123Z'"
+        );
+        let later: jiff::Timestamp = "2026-10-21T06:05:00.124Z".parse().unwrap();
+        assert_ne!(backup_path(now), backup_path(later));
+        let whole: jiff::Timestamp = "2026-10-21T06:05:00Z".parse().unwrap();
+        assert_eq!(
+            backup_path(whole),
+            PathBuf::from("/etc/hosts.backup.2026-10-21T06-05-00.000Z")
+        );
+    }
+}

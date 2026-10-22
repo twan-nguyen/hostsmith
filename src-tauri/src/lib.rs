@@ -1,0 +1,144 @@
+use std::sync::Arc;
+
+use tauri::{Manager, RunEvent};
+use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_window_state::StateFlags;
+
+mod config;
+mod external_tools;
+mod hosts;
+mod hosts_writer;
+mod menu;
+mod platform;
+mod ports;
+mod profiles;
+mod settings;
+mod toast;
+mod tray;
+mod url_command;
+mod util;
+mod watcher;
+
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_positioner::init())
+        .plugin(
+            // The panel always opens under the menu bar icon.
+            tauri_plugin_window_state::Builder::new()
+                .with_denylist(&["panel"])
+                .with_state_flags(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED)
+                .build(),
+        )
+        .manage(menu::MenuState::default())
+        .manage(tray::TrayState::default())
+        .manage(url_command::UrlQueue::default())
+        .on_menu_event(menu::handle)
+        .on_window_event(tray::on_window_event)
+        .setup(|app| {
+            config::carry_over_old_config();
+            let settings = settings::SettingsState::load();
+            settings::apply(app.handle(), &settings.get())?;
+            let show_tray = settings.get().show_menu_bar_extra;
+            app.manage(settings);
+            let runner: platform::SharedRunner = Arc::new(platform::SystemRunner::new());
+            app.manage(runner);
+            app.manage(ports::PortsState::new());
+            // Looks the tools up now, so the first menu that names them does
+            // not wait for the lookup.
+            tauri::async_runtime::spawn_blocking(|| {
+                external_tools::detected();
+            });
+            app.manage(hosts::HostsState::load());
+            menu::sync(app.handle(), &app.state::<hosts::HostsState>().lock());
+            tray::set_enabled(app.handle(), show_tray);
+            listen_for_links(app.handle());
+            match hosts::watch(app.handle()) {
+                Ok(watch) => {
+                    app.manage(watch);
+                }
+                Err(error) => eprintln!("hostsmith: not watching the hosts file: {error}"),
+            }
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            hosts::hosts_snapshot,
+            hosts::hosts_reload,
+            hosts::hosts_add_entry,
+            hosts::hosts_update_entry,
+            hosts::hosts_duplicate_entry,
+            hosts::hosts_toggle_entry,
+            hosts::hosts_delete_entry,
+            hosts::hosts_set_tag_enabled,
+            hosts::hosts_undo,
+            hosts::hosts_redo,
+            hosts::hosts_discard,
+            hosts::hosts_set_raw_draft,
+            hosts::hosts_apply,
+            hosts::hosts_apply_raw,
+            hosts::hosts_switch_environment,
+            hosts::hosts_confirm_pending_switch,
+            hosts::hosts_cancel_pending_switch,
+            hosts::hosts_dismiss_verification,
+            hosts::hosts_backup,
+            hosts::profiles_add,
+            hosts::profiles_rename,
+            hosts::profiles_remove,
+            hosts::profiles_set_exclusive,
+            hosts::profiles_set_color,
+            settings::settings_get,
+            settings::settings_update,
+            settings::settings_preview_transparency,
+            tray::panel_toggle_block,
+            tray::panel_open_main,
+            tray::panel_hide,
+            tray::panel_quit,
+            ports::ports_snapshot,
+            ports::ports_scan,
+            ports::ports_kill,
+            ports::ports_stop_container,
+            external_tools::tools_detect,
+            external_tools::tools_open_in_terminal,
+            external_tools::tools_open_in_editor,
+            external_tools::tools_reveal_in_finder,
+            external_tools::tools_open_chrome_dns,
+            url_command::window_ready,
+        ])
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| match event {
+            // A click on the Dock icon.
+            #[cfg(target_os = "macos")]
+            RunEvent::Reopen { .. } => tray::show_main(app),
+            // Only closing every window asks without a code; quitting does not.
+            RunEvent::ExitRequested {
+                code: None, api, ..
+            } if tray::keeps_running(app) => api.prevent_exit(),
+            RunEvent::Exit => {
+                // Root rights must not outlive the app.
+                if let Some(runner) = app.try_state::<platform::SharedRunner>() {
+                    runner.release();
+                }
+            }
+            _ => {}
+        });
+}
+
+/// Routes `hostsmith://` links to the app. Setup runs before the event loop,
+/// so on macOS a link that launched the app arrives later through the
+/// listener; `get_current` covers the platforms that pass it as an argument,
+/// which the listener never sees. Neither path repeats the other.
+fn listen_for_links(app: &tauri::AppHandle) {
+    if let Ok(Some(urls)) = app.deep_link().get_current() {
+        for url in urls {
+            url_command::receive(app, url.into());
+        }
+    }
+    let handle = app.clone();
+    app.deep_link().on_open_url(move |event| {
+        for url in event.urls() {
+            url_command::receive(&handle, url.into());
+        }
+    });
+}
