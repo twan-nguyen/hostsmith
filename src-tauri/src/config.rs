@@ -51,17 +51,6 @@ fn carry_over(old: &Path, new: &Path) {
     }
 }
 
-/// The preferences Hosven 1.x kept in UserDefaults, read once for migration.
-pub fn legacy_defaults_path() -> PathBuf {
-    home_dir().join("Library/Preferences/com.twannguyen.hosven.plist")
-}
-
-/// One value from the legacy preferences file, if the file and key exist.
-pub fn legacy_default(plist: &Path, key: &str) -> Option<plist::Value> {
-    let value = plist::Value::from_file(plist).ok()?;
-    value.as_dictionary()?.get(key).cloned()
-}
-
 /// Moves an unreadable file aside so the next save cannot overwrite what the
 /// user had, and returns the name it now has.
 pub fn set_aside(path: &Path) -> Option<PathBuf> {

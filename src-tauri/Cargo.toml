@@ -4,7 +4,7 @@ version = "2.0.0"
 description = "Manage /etc/hosts and listening ports on macOS"
 authors = ["Twan"]
 license = "MIT"
-repository = "https://github.com/twan-nguyen/hosven"
+repository = "https://github.com/twan-nguyen/hostsmith"
 edition = "2024"
 
 [lib]

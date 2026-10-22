@@ -4,7 +4,7 @@
 
 ### ⚠ BREAKING CHANGES
 
-* Hosven is renamed HostSmith and rewritten with Tauri 2, Rust and React. Releases come from `vX.Y.Z` tags and install with `brew install --cask twan-nguyen/tap/hostsmith`; the `twan-nguyen/hosven` tap is deprecated and Sparkle hands 1.x users over once.
+* Hosven is renamed HostSmith and rewritten with Tauri 2, Rust and React. Releases come from `vX.Y.Z` tags and install with `brew install --cask twan-nguyen/tap/hostsmith`; the repository moves to `twan-nguyen/hostsmith`, and the `twan-nguyen/hosven` tap and Sparkle updates are retired.
 * the `.env` editor from 1.x is removed
 
 ### Features
@@ -14,7 +14,7 @@
 * ports pane: listening TCP ports attributed to git projects and containers, stop with SIGTERM then SIGKILL
 * an environment switcher at the foot of the sidebar; messages float over the window instead of taking room in the panes
 * menu bar panel, ⌘K palette and the `hostsmith://` URL scheme
-* configuration lives in `~/.config/hostsmith` (`profiles.json`, `settings.json`), copied from `~/.config/hosven` and migrated from the 1.x preferences
+* configuration lives in `~/.config/hostsmith` (`profiles.json`, `settings.json`), copied once from `~/.config/hosven`
 
 ### Bug Fixes
 

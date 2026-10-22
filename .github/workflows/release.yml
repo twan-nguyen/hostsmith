@@ -73,8 +73,6 @@ jobs:
             --config "{\"version\":\"$VERSION\"}"
           test -d "$APP_PATH"
           plutil -extract CFBundleShortVersionString raw "$APP_PATH/Contents/Info.plist"
-          # Sparkle in Hosven 1.x refuses an update without the key it trusts.
-          plutil -extract SUPublicEDKey raw "$APP_PATH/Contents/Info.plist" >/dev/null
           lipo -archs "$APP_PATH"/Contents/MacOS/*
           codesign --verify --strict "$APP_PATH"
 
@@ -99,40 +97,6 @@ jobs:
             --title "$APP_NAME $VERSION" \
             --generate-notes \
             --verify-tag
-
-      # One time only: the last appcast item Hosven 1.x reads, so Sparkle users
-      # move to this build. Later versions update through Homebrew.
-      - name: Publish the Sparkle bridge
-        if: github.ref_name == 'v2.0.0'
-        env:
-          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          [ -n "$SPARKLE_PRIVATE_KEY" ] || { echo "::error::SPARKLE_PRIVATE_KEY is not set"; exit 1; }
-          curl -fsSL -o "$RUNNER_TEMP/sparkle.tar.xz" \
-            https://github.com/sparkle-project/Sparkle/releases/download/2.7.0/Sparkle-2.7.0.tar.xz
-          mkdir -p "$RUNNER_TEMP/sparkle" && tar -xJf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP/sparkle"
-
-          STAGING="$RUNNER_TEMP/appcast"
-          mkdir -p "$STAGING"
-          cp "$DIST/$ZIP_NAME" "$STAGING/"
-          printf '%s' "$SPARKLE_PRIVATE_KEY" | tr -d '\r\n\t ' | \
-            "$RUNNER_TEMP/sparkle/bin/generate_appcast" \
-              --ed-key-file - \
-              --phased-rollout-interval 86400 \
-              --download-url-prefix "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/" \
-              "$STAGING"
-          cat "$STAGING/appcast.xml"
-
-          PAGES="$RUNNER_TEMP/gh-pages"
-          git clone --branch gh-pages --depth 1 "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git" "$PAGES"
-          cp "$STAGING/appcast.xml" "$PAGES/appcast.xml"
-          cd "$PAGES"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add appcast.xml
-          git commit -m "chore: point the appcast at $APP_NAME $VERSION"
-          git push origin gh-pages
 
       - name: Update Homebrew cask
         env:

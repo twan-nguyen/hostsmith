@@ -156,22 +156,18 @@ pub trait ProfileStore: Send {
     fn save(&self, profiles: &[Profile]) -> Result<(), String>;
 }
 
-/// `profiles.json`, migrated once from the UserDefaults blob of Hosven 1.x.
+/// `profiles.json` in the config directory.
 pub struct FileProfileStore {
     path: PathBuf,
-    legacy_plist: Option<PathBuf>,
     /// Set when the file exists but could not be read or moved aside, so a
     /// save would overwrite what the user had.
     read_only: AtomicBool,
 }
 
-const LEGACY_KEY: &str = "com.twannguyen.hosven.profiles.v2";
-
 impl FileProfileStore {
-    pub fn new(path: PathBuf, legacy_plist: Option<PathBuf>) -> Self {
+    pub fn new(path: PathBuf) -> Self {
         Self {
             path,
-            legacy_plist,
             read_only: AtomicBool::new(false),
         }
     }
@@ -185,15 +181,7 @@ impl FileProfileStore {
     }
 
     pub fn default_location() -> Self {
-        Self::new(
-            config::config_dir().join("profiles.json"),
-            Some(config::legacy_defaults_path()),
-        )
-    }
-
-    fn load_legacy(&self) -> Option<Vec<Profile>> {
-        let blob = config::legacy_default(self.legacy_plist.as_ref()?, LEGACY_KEY)?;
-        serde_json::from_slice(blob.as_data()?).ok()
+        Self::new(config::config_dir().join("profiles.json"))
     }
 }
 
@@ -218,16 +206,10 @@ impl ProfileStore for FileProfileStore {
                     ),
                 },
             },
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                let profiles = self.load_legacy().unwrap_or_default();
-                if !profiles.is_empty() {
-                    let _ = self.save(&profiles);
-                }
-                Loaded {
-                    profiles,
-                    notice: None,
-                }
-            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Loaded {
+                profiles: Vec::new(),
+                notice: None,
+            },
             Err(error) => self.unreadable(format!(
                 "Không đọc được profiles.json: {error}. HostSmith sẽ không ghi đè nó."
             )),
@@ -281,7 +263,7 @@ mod tests {
     fn temp_store() -> (FileProfileStore, PathBuf) {
         let dir = std::env::temp_dir().join(format!("hostsmith-profiles-{}", Uuid::new_v4()));
         let path = dir.join("profiles.json");
-        (FileProfileStore::new(path.clone(), None), path)
+        (FileProfileStore::new(path.clone()), path)
     }
 
     fn sample() -> Vec<Profile> {
@@ -377,32 +359,6 @@ mod tests {
         let value = serde_json::to_value(&profile).unwrap();
         assert_eq!(value["id"], profile.id.to_string());
         assert_eq!(value["isExclusive"], true);
-    }
-
-    #[test]
-    fn migrates_the_user_defaults_blob_once() {
-        let (_, path) = temp_store();
-        let dir = path.parent().unwrap();
-        fs::create_dir_all(dir).unwrap();
-        let blob = br#"[{"id":"6F1C2A52-6D0E-4D43-9A2B-3C1F0E9D8B7A","name":"Production","color":"green","shortcutNumber":1}]"#;
-        let mut defaults = plist::Dictionary::new();
-        defaults.insert(LEGACY_KEY.into(), plist::Value::Data(blob.to_vec()));
-        let plist_path = dir.join("legacy.plist");
-        plist::Value::Dictionary(defaults)
-            .to_file_binary(&plist_path)
-            .unwrap();
-
-        let store = FileProfileStore::new(path.clone(), Some(plist_path));
-        let profiles = store.load().profiles;
-        assert_eq!(profiles.len(), 1);
-        assert!(
-            profiles[0].is_exclusive,
-            "production is an environment by name"
-        );
-        assert!(
-            path.exists(),
-            "the migrated profiles are written to the file"
-        );
     }
 
     #[test]

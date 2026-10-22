@@ -29,7 +29,7 @@ Cập nhật: `brew upgrade --cask hostsmith`.
 
 App được ký ad-hoc và không notarize. Cask tự gỡ cờ quarantine; nếu tải file zip bằng trình duyệt thì chạy `xattr -dr com.apple.quarantine /Applications/HostSmith.app`.
 
-Người dùng Hosven 1.x cài từ tap cũ `twan-nguyen/hosven` nhận bản 2.0 qua "Kiểm tra cập nhật". Profile được giữ nguyên. Bản 2.0 bỏ trình sửa file `.env`: HostSmith không đọc danh sách repo và profile env cũ nữa, nhưng cũng không xoá chúng.
+Đến từ Hosven 1.x: gỡ Hosven rồi cài HostSmith bằng lệnh trên. Lần chạy đầu, HostSmith chép profile và cài đặt từ `~/.config/hosven`. Bản 2.0 bỏ trình sửa file `.env` và không tự cập nhật nữa.
 
 ## Dữ liệu
 

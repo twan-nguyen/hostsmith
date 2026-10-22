@@ -15,8 +15,8 @@ use uuid::Uuid;
 use crate::hosts::{self, Hosts, SwitchPolicy};
 use crate::util::lock;
 
-const HOMEPAGE: &str = "https://github.com/twan-nguyen/hosven";
-const RELEASES: &str = "https://github.com/twan-nguyen/hosven/releases";
+const HOMEPAGE: &str = "https://github.com/twan-nguyen/hostsmith";
+const RELEASES: &str = "https://github.com/twan-nguyen/hostsmith/releases";
 
 /// The menu actions the window carries out, sent as `menu` events.
 const WINDOW_ACTIONS: [&str; 5] = ["undo", "redo", "find", "toggle-sidebar", "settings"];
@@ -271,7 +271,7 @@ mod tests {
     fn the_feedback_issue_carries_the_version() {
         let url = feedback_url("2.0.0");
         assert!(url.starts_with(
-            "https://github.com/twan-nguyen/hosven/issues/new?title=Feedback%3A%20&body="
+            "https://github.com/twan-nguyen/hostsmith/issues/new?title=Feedback%3A%20&body="
         ));
         assert!(url.contains("HostSmith%202.0.0"));
     }

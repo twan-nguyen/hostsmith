@@ -51,30 +51,6 @@ impl Settings {
         self.transparency = self.transparency.min(100);
         self
     }
-
-    /// The preferences Hosven 1.x kept in UserDefaults.
-    fn from_legacy(plist: &std::path::Path) -> Option<Self> {
-        let value = plist::Value::from_file(plist).ok()?;
-        let defaults = value.as_dictionary()?;
-        let mut settings = Self::default();
-        if let Some(mode) = defaults.get("appearanceMode").and_then(|v| v.as_string()) {
-            settings.appearance_mode = match mode {
-                "light" => AppearanceMode::Light,
-                "dark" => AppearanceMode::Dark,
-                _ => AppearanceMode::System,
-            };
-        }
-        if let Some(size) = defaults.get("editorFontSize").and_then(|v| v.as_real()) {
-            settings.editor_font_size = size.round().clamp(10.0, 20.0) as u8;
-        }
-        if let Some(show) = defaults
-            .get("showMenuBarExtra")
-            .and_then(|v| v.as_boolean())
-        {
-            settings.show_menu_bar_extra = show;
-        }
-        Some(settings)
-    }
 }
 
 /// Fields the UI changes; the rest stay as they are.
@@ -94,13 +70,10 @@ pub struct SettingsState {
 
 impl SettingsState {
     pub fn load() -> Self {
-        Self::load_from(
-            config::config_dir().join("settings.json"),
-            &config::legacy_defaults_path(),
-        )
+        Self::load_from(config::config_dir().join("settings.json"))
     }
 
-    fn load_from(path: PathBuf, legacy: &std::path::Path) -> Self {
+    fn load_from(path: PathBuf) -> Self {
         let settings = match std::fs::read(&path) {
             Ok(bytes) => match serde_json::from_slice::<Settings>(&bytes) {
                 Ok(settings) => settings.clamped(),
@@ -114,9 +87,9 @@ impl SettingsState {
                 }
             },
             Err(_) => {
-                let migrated = Settings::from_legacy(legacy).unwrap_or_default();
-                let _ = config::write_json_atomic(&path, &migrated);
-                migrated
+                let defaults = Settings::default();
+                let _ = config::write_json_atomic(&path, &defaults);
+                defaults
             }
         };
         Self {
@@ -220,7 +193,7 @@ mod tests {
     #[test]
     fn defaults_when_nothing_exists() {
         let dir = temp_dir();
-        let state = SettingsState::load_from(dir.join("settings.json"), &dir.join("none.plist"));
+        let state = SettingsState::load_from(dir.join("settings.json"));
         assert_eq!(state.get(), Settings::default());
         assert!(
             dir.join("settings.json").exists(),
@@ -229,35 +202,10 @@ mod tests {
     }
 
     #[test]
-    fn imports_the_hosven_1_preferences() {
-        let dir = temp_dir();
-        let mut defaults = plist::Dictionary::new();
-        defaults.insert("appearanceMode".into(), plist::Value::String("dark".into()));
-        defaults.insert("editorFontSize".into(), plist::Value::Real(15.0));
-        defaults.insert("showMenuBarExtra".into(), plist::Value::Boolean(false));
-        defaults.insert("sidebarWidth".into(), plist::Value::Real(300.0));
-        let legacy = dir.join("legacy.plist");
-        plist::Value::Dictionary(defaults)
-            .to_file_binary(&legacy)
-            .unwrap();
-
-        let state = SettingsState::load_from(dir.join("settings.json"), &legacy);
-        assert_eq!(
-            state.get(),
-            Settings {
-                appearance_mode: AppearanceMode::Dark,
-                editor_font_size: 15,
-                show_menu_bar_extra: false,
-                transparency: 0,
-            }
-        );
-    }
-
-    #[test]
     fn an_update_changes_only_what_it_names_and_persists() {
         let dir = temp_dir();
         let path = dir.join("settings.json");
-        let state = SettingsState::load_from(path.clone(), &dir.join("none.plist"));
+        let state = SettingsState::load_from(path.clone());
         let updated = state
             .update(SettingsPatch {
                 editor_font_size: Some(40),
@@ -272,7 +220,7 @@ mod tests {
         assert_eq!(updated.transparency, 35);
         assert!(updated.show_menu_bar_extra);
 
-        let reread = SettingsState::load_from(path, &dir.join("none.plist"));
+        let reread = SettingsState::load_from(path);
         assert_eq!(reread.get(), updated);
     }
 
@@ -281,7 +229,7 @@ mod tests {
         let dir = temp_dir();
         let path = dir.join("settings.json");
         std::fs::write(&path, r#"{"appearanceMode":"light"}"#).unwrap();
-        let state = SettingsState::load_from(path, &dir.join("none.plist"));
+        let state = SettingsState::load_from(path);
         assert_eq!(state.get().appearance_mode, AppearanceMode::Light);
         assert_eq!(state.get().editor_font_size, 13);
     }
