@@ -130,12 +130,6 @@ function searchJumps(query: string): PaletteCommand[] {
   ];
 }
 
-/** Moves the highlighted row by `delta`, wrapping at both ends. */
-export function wrapIndex(index: number, delta: number, count: number): number {
-  if (count === 0) return 0;
-  return (((index + delta) % count) + count) % count;
-}
-
 /** The palette's sections for `query`, best match first in each. */
 export function paletteSections(query: string, sources: PaletteSources): PaletteSection[] {
   const trimmed = query.trim();
@@ -144,8 +138,8 @@ export function paletteSections(query: string, sources: PaletteSources): Palette
     scored = universe(sources).map((command) => [command, 0]);
   } else {
     scored = universe(sources).flatMap((command): [PaletteCommand, number][] => {
-      const title = fuzzyMatch(trimmed, command.title)?.score ?? -Infinity;
-      const subtitle = command.subtitle ? (fuzzyMatch(trimmed, command.subtitle)?.score ?? -Infinity) : -Infinity;
+      const title = fuzzyMatch(trimmed, command.title) ?? -Infinity;
+      const subtitle = command.subtitle ? (fuzzyMatch(trimmed, command.subtitle) ?? -Infinity) : -Infinity;
       const best = Math.max(title, subtitle * 0.6);
       return best === -Infinity ? [] : [[command, best]];
     });

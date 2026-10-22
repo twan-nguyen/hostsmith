@@ -2,7 +2,6 @@
 //! as `hosts-changed`, so the main window and the menu bar panel never drift.
 
 mod history;
-mod import;
 mod model;
 mod parse;
 mod state;
@@ -10,15 +9,16 @@ mod switch;
 mod verify;
 
 use std::path::Path;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
 use crate::hosts_writer;
-use crate::platform::{HOSTS_PATH, HostsWriter, RunOutcome, SharedRunner, WriteOutcome};
+use crate::platform::{self, HOSTS_PATH, RunOutcome, SharedRunner};
 use crate::profiles::{FileProfileStore, Profile, ProfileColor};
+use crate::util::lock;
 use crate::watcher::FileWatcher;
 use model::ToastKind;
 pub use state::{EntryInput, Hosts, Outcome, Snapshot, Step};
@@ -40,9 +40,7 @@ impl HostsState {
     }
 
     pub fn lock(&self) -> MutexGuard<'_, Hosts> {
-        self.0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        lock(&self.0)
     }
 }
 
@@ -62,7 +60,7 @@ pub fn watch(app: &AppHandle) -> Result<HostsWatch, String> {
     let watcher = FileWatcher::new(
         Path::new(HOSTS_PATH),
         Duration::from_millis(400),
-        move |_| {
+        move || {
             let on_disk = read_hosts().ok();
             let state = handle.state::<HostsState>();
             let mut hosts = state.lock();
@@ -71,13 +69,6 @@ pub fn watch(app: &AppHandle) -> Result<HostsWatch, String> {
         },
     )?;
     Ok(HostsWatch { _watcher: watcher })
-}
-
-/// What a write needs from the system: something that replaces the file, and
-/// a resolver to check the hostnames afterwards.
-pub struct HostsServices {
-    pub writer: Arc<dyn HostsWriter>,
-    pub resolve: fn(&str) -> Vec<String>,
 }
 
 fn emit(app: &AppHandle, hosts: &Hosts) {
@@ -110,28 +101,34 @@ pub(crate) async fn run(app: AppHandle, step: Step) -> Outcome {
     };
     emit(&app, &state.lock());
 
-    let Some(services) = app.try_state::<HostsServices>() else {
-        let written = WriteOutcome::Failed("Hosven chưa sẵn sàng ghi /etc/hosts".into());
-        return mutate(&app, &state, |h| h.finish_write(job, written));
-    };
-    let writer = services.writer.clone();
-    let resolve = services.resolve;
+    let runner = app.state::<SharedRunner>().inner().clone();
     let content = job.content.clone();
     let changed = job.changed.clone();
     let seq = job.seq;
-    let written = tauri::async_runtime::spawn_blocking(move || writer.write(&content))
-        .await
-        .unwrap_or_else(|error| WriteOutcome::Failed(error.to_string()));
+    let written = run_as_root(move || hosts_writer::write(runner.as_ref(), &content)).await;
 
     let outcome = mutate(&app, &state, |h| h.finish_write(job, written));
     if outcome == Outcome::Written && !changed.is_empty() {
-        let checked =
-            tauri::async_runtime::spawn_blocking(move || verify::run(&changed, resolve)).await;
+        let checked = tauri::async_runtime::spawn_blocking(move || {
+            verify::run(&changed, platform::resolve_host)
+        })
+        .await;
         if let Ok(verification) = checked {
             mutate(&app, &state, |h| h.set_verification(seq, verification));
         }
     }
     outcome
+}
+
+/// Runs a root script off the async runtime's threads, since the password
+/// prompt blocks until the user answers it.
+async fn run_as_root(work: impl FnOnce() -> RunOutcome + Send + 'static) -> RunOutcome {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .unwrap_or_else(|error| RunOutcome::Failed {
+            exit: -1,
+            stderr: error.to_string(),
+        })
 }
 
 #[tauri::command]
@@ -201,15 +198,6 @@ pub fn hosts_set_tag_enabled(
 }
 
 #[tauri::command]
-pub fn hosts_import(
-    app: AppHandle,
-    state: State<'_, HostsState>,
-    text: String,
-) -> Result<usize, String> {
-    mutate(&app, &state, |h| h.import(&text))
-}
-
-#[tauri::command]
 pub fn hosts_undo(app: AppHandle, state: State<'_, HostsState>) -> Result<(), String> {
     mutate(&app, &state, Hosts::undo)
 }
@@ -225,8 +213,20 @@ pub fn hosts_discard(app: AppHandle, state: State<'_, HostsState>) -> Result<(),
 }
 
 #[tauri::command]
-pub fn hosts_set_raw_draft(app: AppHandle, state: State<'_, HostsState>, text: Option<String>) {
-    mutate(&app, &state, |h| h.set_raw_draft(text));
+pub fn hosts_set_raw_draft(
+    app: AppHandle,
+    state: State<'_, HostsState>,
+    text: Option<String>,
+    base: String,
+) {
+    // The window keeps its own draft in step, so only a change to what the
+    // other views show (the dirty mark and the pending count) is sent.
+    let mut hosts = state.lock();
+    let before = hosts.pending_state();
+    hosts.set_raw_draft(text, &base);
+    if hosts.pending_state() != before {
+        emit(&app, &hosts);
+    }
 }
 
 #[tauri::command]
@@ -236,8 +236,11 @@ pub async fn hosts_apply(app: AppHandle) -> Outcome {
 }
 
 #[tauri::command]
-pub async fn hosts_apply_raw(app: AppHandle, text: String) -> Outcome {
-    let step = app.state::<HostsState>().lock().begin_apply_raw(&text);
+pub async fn hosts_apply_raw(app: AppHandle, text: String, base: String) -> Outcome {
+    let step = app
+        .state::<HostsState>()
+        .lock()
+        .begin_apply_raw(&text, &base);
     run(app, step).await
 }
 
@@ -276,19 +279,10 @@ pub fn hosts_switch_preview(state: State<'_, HostsState>, target: Option<Uuid>) 
 pub async fn hosts_backup(app: AppHandle) -> Result<(), String> {
     let state = app.state::<HostsState>();
     state.lock().check_idle()?;
-    let runner = app
-        .try_state::<SharedRunner>()
-        .ok_or("Hosven chưa sẵn sàng ghi /etc/hosts")?
-        .inner()
-        .clone();
+    let runner = app.state::<SharedRunner>().inner().clone();
     let path = hosts_writer::backup_path(jiff::Timestamp::now());
     let script = hosts_writer::backup_script(&path);
-    let ran = tauri::async_runtime::spawn_blocking(move || runner.run(&script))
-        .await
-        .unwrap_or_else(|error| RunOutcome::Failed {
-            exit: -1,
-            stderr: error.to_string(),
-        });
+    let ran = run_as_root(move || runner.run(&script)).await;
     mutate(&app, &state, |h| match ran {
         RunOutcome::Ok => h.show_toast(
             format!("Đã tạo bản sao lưu {}", path.display()),
@@ -309,11 +303,6 @@ pub async fn hosts_backup(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn hosts_dismiss_verification(app: AppHandle, state: State<'_, HostsState>) {
     mutate(&app, &state, Hosts::dismiss_verification);
-}
-
-#[tauri::command]
-pub fn hosts_export(app: AppHandle, state: State<'_, HostsState>) -> String {
-    mutate(&app, &state, Hosts::export)
 }
 
 #[tauri::command]

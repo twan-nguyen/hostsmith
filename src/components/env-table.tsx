@@ -11,7 +11,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Switch } from "@/components/ui/switch";
-import { type TableRow, isSecretKey, maskSecret, maskVariant, missingRows, rowId, tableRows } from "@/lib/env-table";
+import { type TableRow, isSecretKey, maskSecret, maskVariant, rowId, tableRows } from "@/lib/env-table";
 import { type EnvEntry, envDuplicateEntry, envSelectVariant, envToggleEntry } from "@/lib/hosven";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store";
@@ -23,23 +23,18 @@ const GRID = { gridTemplateColumns: "240px minmax(0,1fr) auto" };
 
 /**
  * The selected file's variables as a key and value table. Keys defined more
- * than once fold into one row that picks which definition is on; keys the
- * example file has and this one lacks show as rows to add.
+ * than once fold into one row that picks which definition is on.
  */
 export function EnvTable({
   entries,
-  missingKeys,
   query,
   onAdd,
-  onAddMissing,
   onEdit,
   onDelete,
 }: {
   entries: EnvEntry[];
-  missingKeys: string[];
   query: string;
   onAdd: () => void;
-  onAddMissing: (key: string) => void;
   onEdit: (entry: EnvEntry) => void;
   onDelete: (entry: EnvEntry) => void;
 }) {
@@ -49,7 +44,6 @@ export function EnvTable({
   const revealTimer = useRef<number | undefined>(undefined);
 
   const rows = useMemo(() => tableRows(entries, query), [entries, query]);
-  const missing = useMemo(() => missingRows(missingKeys, query), [missingKeys, query]);
 
   useEffect(() => () => window.clearTimeout(revealTimer.current), []);
 
@@ -72,7 +66,7 @@ export function EnvTable({
     });
   }
 
-  if (rows.length === 0 && missing.length === 0) {
+  if (rows.length === 0) {
     return query.trim() ? (
       <PaneEmpty title="Không có kết quả" detail={`Không có biến nào khớp ${query.trim()}.`} />
     ) : (
@@ -107,19 +101,6 @@ export function EnvTable({
           />
         ),
       )}
-      {missing.map((key) => (
-        <div
-          key={`missing:${key}`}
-          className="grid min-h-9 animate-fade-in items-center gap-4 border-b border-border/50 px-5 transition-colors duration-100 hover:bg-accent"
-          style={GRID}
-        >
-          <KeyCell name={key} />
-          <span className="truncate font-mono text-xs text-muted-foreground">Thiếu — có trong .env.example</span>
-          <Button size="xs" variant="outline" onClick={() => onAddMissing(key)}>
-            Thêm
-          </Button>
-        </div>
-      ))}
     </div>
   );
 }

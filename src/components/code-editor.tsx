@@ -1,6 +1,6 @@
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { SearchQuery, findNext, highlightSelectionMatches, search, searchKeymap, setSearchQuery } from "@codemirror/search";
-import { EditorSelection, type Extension, Prec, RangeSetBuilder } from "@codemirror/state";
+import { Compartment, EditorSelection, type Extension, Prec, RangeSetBuilder, Transaction } from "@codemirror/state";
 import {
   Decoration,
   type DecorationSet,
@@ -19,7 +19,6 @@ import { type Language, toggleComment, tokenize } from "@/lib/syntax";
 import { useStore } from "@/store";
 
 export type CodeEditorHandle = {
-  focus: () => void;
   /** Selects the next match of `query`, ignoring case, wrapping at the end. */
   find: (query: string) => void;
   /** Moves the cursor to the first line that equals `line` once trimmed. */
@@ -118,6 +117,7 @@ export function CodeEditor({
   // The keymap is built once; these refs keep it calling the latest handlers.
   const handlers = useRef({ onChange, onSave });
   handlers.current = { onChange, onSave };
+  const editable = useRef(new Compartment());
 
   useEffect(() => {
     const extensions: Extension[] = [
@@ -130,7 +130,7 @@ export function CodeEditor({
       highlightSelectionMatches(),
       highlighter(language),
       theme,
-      EditorView.editable.of(!readOnly),
+      editable.current.of(EditorView.editable.of(!readOnly)),
       Prec.high(
         keymap.of([
           { key: "Mod-s", run: () => (handlers.current.onSave(), true) },
@@ -148,8 +148,12 @@ export function CodeEditor({
       editor.destroy();
       view.current = null;
     };
-    // The editor is created once per language; `value` is synced below.
-  }, [language, readOnly]);
+    // The editor is created once per language; `value` and `readOnly` are synced below.
+  }, [language]);
+
+  useEffect(() => {
+    view.current?.dispatch({ effects: editable.current.reconfigure(EditorView.editable.of(!readOnly)) });
+  }, [readOnly]);
 
   useEffect(() => {
     const editor = view.current;
@@ -158,13 +162,15 @@ export function CodeEditor({
     editor.dispatch({
       changes: { from: 0, to: editor.state.doc.length, insert: value },
       selection: EditorSelection.cursor(head),
+      // Undo steps back through the user's own typing, never into text a
+      // reload or write replaced.
+      annotations: Transaction.addToHistory.of(false),
     });
   }, [value]);
 
   const lastQuery = useRef("");
 
   useImperativeHandle(ref, () => ({
-    focus: () => view.current?.focus(),
     find: (query) => {
       const editor = view.current;
       if (!editor || !query) return;

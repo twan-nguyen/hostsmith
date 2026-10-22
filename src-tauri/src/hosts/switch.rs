@@ -191,7 +191,7 @@ mod tests {
     use super::super::state::tests::hosts;
     use super::super::state::{EntryInput, WriteJob};
     use super::*;
-    use crate::platform::WriteOutcome;
+    use crate::platform::RunOutcome;
     use crate::profiles::ProfileColor;
 
     const FIXTURE: &str = "127.0.0.1\tlocalhost
@@ -236,14 +236,14 @@ mod tests {
     /// Records every write a switch makes and answers with `answer`.
     struct Writes {
         contents: Vec<String>,
-        answer: WriteOutcome,
+        answer: RunOutcome,
     }
 
     impl Writes {
         fn ok() -> Self {
             Self {
                 contents: Vec::new(),
-                answer: WriteOutcome::Written,
+                answer: RunOutcome::Ok,
             }
         }
 
@@ -396,7 +396,7 @@ mod tests {
         let before = h.entries.clone();
         let mut writes = Writes {
             contents: Vec::new(),
-            answer: WriteOutcome::Cancelled,
+            answer: RunOutcome::Cancelled,
         };
         let step = h.switch_environment(Some(id(&h, "Staging")), SwitchPolicy::Ask);
         assert_eq!(writes.run(&mut h, step), Outcome::Cancelled);
@@ -411,7 +411,7 @@ mod tests {
         let message = "quyền quản trị bị từ chối (mã 1)".to_string();
         let mut writes = Writes {
             contents: Vec::new(),
-            answer: WriteOutcome::Failed(message.clone()),
+            answer: RunOutcome::Denied(1),
         };
         let step = h.switch_environment(Some(id(&h, "Staging")), SwitchPolicy::Ask);
         assert_eq!(writes.run(&mut h, step), Outcome::Failed(message));
@@ -427,7 +427,10 @@ mod tests {
     fn typing_in_the_raw_editor_is_folded_in_not_lost() {
         let mut h = make(FIXTURE);
         let mut writes = Writes::ok();
-        h.set_raw_draft(Some(format!("{}127.0.0.1\ttyped.test\n", h.serialize())));
+        h.set_raw_draft(
+            Some(format!("{}127.0.0.1\ttyped.test\n", h.serialize())),
+            &h.serialize(),
+        );
         let step = h.switch_environment(Some(id(&h, "Staging")), SwitchPolicy::Ask);
         assert!(matches!(step, Step::Done(Outcome::NeedsConfirmation(_))));
         assert!(h.entries.iter().any(|e| e.hostname == "typed.test"));
@@ -440,7 +443,7 @@ mod tests {
     fn editor_text_that_matches_the_model_is_not_pending() {
         let mut h = make(FIXTURE);
         let mut writes = Writes::ok();
-        h.set_raw_draft(Some(h.serialize()));
+        h.set_raw_draft(Some(h.serialize()), &h.serialize());
         let step = h.switch_environment(Some(id(&h, "Staging")), SwitchPolicy::Refuse);
         assert_eq!(writes.run(&mut h, step), Outcome::Written);
     }
@@ -500,7 +503,10 @@ mod tests {
     fn a_refusing_caller_leaves_the_editor_typing_alone() {
         let mut h = make(FIXTURE);
         let ids: Vec<Uuid> = h.entries.iter().map(|e| e.id).collect();
-        h.set_raw_draft(Some(format!("{}127.0.0.1\ttyped.test\n", h.serialize())));
+        h.set_raw_draft(
+            Some(format!("{}127.0.0.1\ttyped.test\n", h.serialize())),
+            &h.serialize(),
+        );
         let step = h.switch_environment(Some(id(&h, "Staging")), SwitchPolicy::Refuse);
         assert!(matches!(step, Step::Done(Outcome::Refused(1))));
         assert_eq!(h.entries.iter().map(|e| e.id).collect::<Vec<_>>(), ids);
@@ -524,7 +530,7 @@ mod tests {
         else {
             panic!("expected a write")
         };
-        h.finish_write(job, WriteOutcome::Cancelled);
+        h.finish_write(job, RunOutcome::Cancelled);
         assert_eq!(h.history.depth(), 50);
         h.undo().unwrap();
         assert_eq!(

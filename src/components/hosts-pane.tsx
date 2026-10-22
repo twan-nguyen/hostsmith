@@ -1,17 +1,13 @@
-import { Box, ClipboardCopy, Ellipsis, FileInput, HardDriveDownload, Network, Plus, Search, Undo2 } from "lucide-react";
+import { Box, Ellipsis, HardDriveDownload, Network, Plus, Undo2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { PaneBanner } from "@/components/banner";
 import { CodeEditor, type CodeEditorHandle } from "@/components/code-editor";
 import { EntryDialog } from "@/components/entry-dialog";
 import { EnvironmentConflictBanner } from "@/components/environment-conflict-banner";
-import {
-  ExternalChangeBanner,
-  LoadErrorBanner,
-  ToastBanner,
-  VerificationBanner,
-} from "@/components/hosts-banners";
-import { ImportDialog } from "@/components/import-dialog";
-import { Panel, PanelHeader } from "@/components/panel";
+import { ExternalChangeBanner, LoadErrorBanner, VerificationBanner } from "@/components/hosts-banners";
+import { Panel, PanelHeader, PendingPill } from "@/components/panel";
+import { PaneSearch } from "@/components/pane-search";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -23,17 +19,14 @@ import {
 import { Kbd } from "@/components/ui/kbd";
 import {
   type HostsSnapshot,
-  type Toast,
   hostsApplyRaw,
   hostsBackup,
   hostsDiscard,
-  hostsExport,
   hostsSetRawDraft,
   hostsSnapshot,
 } from "@/lib/hosven";
 import { blockMarker, draftFor, hostsBanner } from "@/lib/hosts-view";
 import { useSaveShortcut } from "@/lib/use-save-shortcut";
-import { useToast } from "@/lib/use-toast";
 import { useStore } from "@/store";
 
 /** Typing reaches the model this long after the last keystroke, so the pending count keeps up. */
@@ -64,12 +57,9 @@ export function HostsPane({ block }: { block?: string }) {
   const run = useStore((s) => s.run);
   const query = useStore((s) => s.hostsQuery);
   const setQuery = useStore((s) => s.setHostsQuery);
-  const findRequest = useStore((s) => s.findRequest);
-  const [toast, dismissToast] = useToast(hosts?.toast ?? null);
-  const [dialog, setDialog] = useState<"entry" | "import" | null>(null);
+  const [adding, setAdding] = useState(false);
 
   const editor = useRef<CodeEditorHandle>(null);
-  const searchInput = useRef<HTMLInputElement>(null);
   const [text, setText] = useState(() => initialText(useStore.getState().hosts));
   /** What the editor holds now, ahead of the next render. */
   const editorText = useRef(text);
@@ -91,11 +81,13 @@ export function HostsPane({ block }: { block?: string }) {
   function sendDraft() {
     window.clearTimeout(draftTimer.current);
     draftTimer.current = undefined;
-    const model = useStore.getState().hosts?.text;
-    if (model === undefined) return Promise.resolve();
+    const base = seen.current;
+    if (base === null) return Promise.resolve();
     draftsInFlight.current += 1;
-    return run(hostsSetRawDraft(draftFor(editorText.current, model))).finally(() => {
+    return run(hostsSetRawDraft(draftFor(editorText.current, base), base)).finally(() => {
       draftsInFlight.current -= 1;
+      // A snapshot that arrived while the draft was out was skipped.
+      sync.current();
     });
   }
 
@@ -120,26 +112,25 @@ export function HostsPane({ block }: { block?: string }) {
   // discard or reload can also drop a draft without changing the text; a
   // fresh read, ordered after this pane's own drafts, confirms it before
   // the typing is replaced.
-  useEffect(() => {
-    if (!hosts || typing()) return;
-    if (hosts.text !== seen.current) {
-      seen.current = hosts.text;
-      replace(hosts.text);
+  const sync = useRef(() => {});
+  sync.current = () => {
+    const current = useStore.getState().hosts;
+    if (!current || typing()) return;
+    if (current.text !== seen.current) {
+      seen.current = current.text;
+      replace(current.text);
       return;
     }
-    if (hosts.dirty || editorText.current === hosts.text) return;
-    let stale = false;
+    if (current.dirty || editorText.current === current.text) return;
     hostsSnapshot()
       .then((fresh) => {
-        if (stale || typing() || fresh.dirty || editorText.current === fresh.text) return;
+        if (typing() || fresh.dirty || editorText.current === fresh.text) return;
         seen.current = fresh.text;
         replace(fresh.text);
       })
       .catch(() => {});
-    return () => {
-      stale = true;
-    };
-  }, [hosts]);
+  };
+  useEffect(() => sync.current(), [hosts]);
 
   // Leaving the pane hands over the last keystrokes, so the model keeps them.
   useEffect(() => () => void flushDraft(), []);
@@ -161,15 +152,6 @@ export function HostsPane({ block }: { block?: string }) {
     return () => window.clearTimeout(timer);
   }, [query, block]);
 
-  // ⌘F focuses the search field.
-  const lastFindRequest = useRef(findRequest);
-  useEffect(() => {
-    if (findRequest === lastFindRequest.current) return;
-    lastFindRequest.current = findRequest;
-    searchInput.current?.focus();
-    searchInput.current?.select();
-  }, [findRequest]);
-
   const applying = hosts?.applying ?? false;
 
   async function apply() {
@@ -177,7 +159,7 @@ export function HostsPane({ block }: { block?: string }) {
     // A cancelled password prompt leaves the typing pending, counted by the model.
     await flushDraft();
     // A failed write reports itself through the model's toast.
-    await run(hostsApplyRaw(editorText.current));
+    if (seen.current !== null) await run(hostsApplyRaw(editorText.current, seen.current));
   }
 
   useSaveShortcut(() => void apply());
@@ -188,15 +170,10 @@ export function HostsPane({ block }: { block?: string }) {
     await run(hostsDiscard());
   }
 
-  async function copyToClipboard() {
-    const content = await run(hostsExport());
-    if (content !== undefined) await run(navigator.clipboard.writeText(content));
-  }
-
-  function openDialog(which: "entry" | "import") {
+  function addEntry() {
     // The entry lands on top of the typing, which the model folds in first.
     void flushDraft();
-    setDialog(which);
+    setAdding(true);
   }
 
   const canDiscard = !!hosts && (hosts.dirty || text !== hosts.text);
@@ -207,38 +184,16 @@ export function HostsPane({ block }: { block?: string }) {
         <span className="text-muted-foreground [&_svg]:size-4">{block ? <Box /> : <Network />}</span>
         <h1 className="truncate font-medium">{block ?? "Hosts hệ thống"}</h1>
         <span className="shrink-0 font-mono text-xs text-muted-foreground">/etc/hosts</span>
-        {hosts?.dirty && (
-          <span
-            data-testid="hosts-pending"
-            className="flex h-6 shrink-0 animate-fade-in items-center gap-1.5 rounded-md bg-warning/10 px-2 text-xs text-warning tabular-nums"
-          >
-            <span className="size-1.5 rounded-full bg-warning" />
-            {hosts.pendingCount} chưa áp dụng
-          </span>
-        )}
+        {hosts?.dirty && <PendingPill count={hosts.pendingCount} testId="hosts-pending" />}
 
-        <label className="ml-auto flex h-7 w-56 min-w-32 shrink items-center gap-2 rounded-md px-2 text-muted-foreground transition-colors duration-100 focus-within:bg-accent hover:bg-accent">
-          <Search className="size-3.5 shrink-0" />
-          <input
-            ref={searchInput}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                editor.current?.find(query);
-              } else if (e.key === "Escape") {
-                e.currentTarget.blur();
-              }
-            }}
-            placeholder="Tìm entry"
-            aria-label="Tìm entry"
-            spellCheck={false}
-            data-testid="hosts-search-field"
-            className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground"
-          />
-          <Kbd>⌘F</Kbd>
-        </label>
+        <PaneSearch
+          value={query}
+          onChange={setQuery}
+          onEnter={() => editor.current?.find(query)}
+          placeholder="Tìm entry"
+          testId="hosts-search-field"
+          className="ml-auto w-56"
+        />
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -247,22 +202,14 @@ export function HostsPane({ block }: { block?: string }) {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-52">
-            <DropdownMenuItem onSelect={() => openDialog("entry")}>
+            <DropdownMenuItem onSelect={addEntry}>
               <Plus />
               Thêm entry
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => openDialog("import")}>
-              <FileInput />
-              Nhập entry
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem disabled={applying} onSelect={() => void run(hostsBackup())}>
               <HardDriveDownload />
               Sao lưu
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => void copyToClipboard()}>
-              <ClipboardCopy />
-              Sao chép vào clipboard
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -282,7 +229,7 @@ export function HostsPane({ block }: { block?: string }) {
         </Button>
       </PanelHeader>
 
-      <HostsBannerSlot hosts={hosts} toast={toast} onDismissToast={dismissToast} />
+      <PaneBanner toast={hosts?.toast ?? null}>{bannerFor(hosts)}</PaneBanner>
 
       <CodeEditor
         ref={editor}
@@ -290,38 +237,27 @@ export function HostsPane({ block }: { block?: string }) {
         language="hosts"
         onChange={onEdit}
         onSave={() => void apply()}
+        readOnly={applying}
         testId="hosts-editor"
       />
 
-      <EntryDialog
-        open={dialog === "entry"}
-        entry={null}
-        initialTag={block ?? null}
-        onClose={() => setDialog(null)}
-      />
-      <ImportDialog open={dialog === "import"} onClose={() => setDialog(null)} />
+      <EntryDialog open={adding} entry={null} initialTag={block ?? null} onClose={() => setAdding(false)} />
     </Panel>
   );
 }
 
-function HostsBannerSlot({
-  hosts,
-  toast,
-  onDismissToast,
-}: {
-  hosts: HostsSnapshot | null;
-  toast: Toast | null;
-  onDismissToast: () => void;
-}) {
-  const kind = hostsBanner(hosts, toast);
-  if (!kind) return null;
-  return (
-    <div className="shrink-0 border-b border-border px-4 py-3">
-      {kind === "toast" && toast && <ToastBanner toast={toast} onDismiss={onDismissToast} />}
-      {kind === "conflict" && hosts?.active.kind === "conflict" && <EnvironmentConflictBanner ids={hosts.active.ids} />}
-      {kind === "loadError" && hosts?.loadError && <LoadErrorBanner error={hosts.loadError} />}
-      {kind === "externalChange" && <ExternalChangeBanner />}
-      {kind === "verification" && <VerificationBanner />}
-    </div>
-  );
+/** The pane's own banner, or nothing; a plain call, so the slot knows when it is empty. */
+function bannerFor(hosts: HostsSnapshot | null): React.ReactNode {
+  switch (hostsBanner(hosts)) {
+    case "conflict":
+      return hosts?.active.kind === "conflict" ? <EnvironmentConflictBanner ids={hosts.active.ids} /> : null;
+    case "loadError":
+      return hosts?.loadError ? <LoadErrorBanner error={hosts.loadError} /> : null;
+    case "externalChange":
+      return <ExternalChangeBanner />;
+    case "verification":
+      return <VerificationBanner />;
+    default:
+      return null;
+  }
 }

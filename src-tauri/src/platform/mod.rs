@@ -11,10 +11,7 @@ pub use macos::{
 };
 
 /// The hosts file every resolver on the system reads.
-#[cfg(unix)]
 pub const HOSTS_PATH: &str = "/etc/hosts";
-#[cfg(windows)]
-pub const HOSTS_PATH: &str = r"C:\Windows\System32\drivers\etc\hosts";
 
 /// How a script run with administrator rights ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,21 +71,6 @@ pub struct ProcessIdentity {
     pub uid: u32,
     /// Start time, in seconds and microseconds since the Unix epoch.
     pub started: (u64, u64),
-}
-
-/// How writing the hosts file ended, as the hosts model sees it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum WriteOutcome {
-    Written,
-    /// The password prompt was dismissed; pending edits stay pending.
-    Cancelled,
-    /// A message for the user, already in Vietnamese.
-    Failed(String),
-}
-
-/// Replaces the hosts file and flushes the resolver caches.
-pub trait HostsWriter: Send + Sync {
-    fn write(&self, content: &str) -> WriteOutcome;
 }
 
 #[cfg(test)]

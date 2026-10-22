@@ -7,7 +7,6 @@ import {
   maskSecret,
   maskVariant,
   matchesQuery,
-  missingRows,
   rowId,
   tableRows,
   variableCount,
@@ -125,23 +124,15 @@ describe("table rows", () => {
   });
 });
 
-describe("missing rows", () => {
-  it("lists every missing key without a search and narrows by key with one", () => {
-    expect(missingRows(["REDIS_URL", "SMTP_HOST"], "")).toEqual(["REDIS_URL", "SMTP_HOST"]);
-    expect(missingRows(["REDIS_URL", "SMTP_HOST"], "smtp")).toEqual(["SMTP_HOST"]);
-  });
-});
-
 describe("status", () => {
   const entries = [line("# x"), variable("A", "1"), variable("B", "2", false)];
 
   it("counts variables, switched off ones included", () => {
     expect(variableCount(entries)).toBe(2);
-    expect(envStatus(entries, false, 0)).toEqual({ tone: "ok", label: "2 biến" });
+    expect(envStatus(entries, false)).toEqual({ tone: "ok", label: "2 biến" });
   });
 
-  it("puts missing variables before pending edits", () => {
-    expect(envStatus(entries, true, 3)).toEqual({ tone: "warning", label: "3 biến thiếu" });
-    expect(envStatus(entries, true, 0)).toEqual({ tone: "warning", label: "Chưa áp dụng" });
+  it("says when edits are pending", () => {
+    expect(envStatus(entries, true)).toEqual({ tone: "warning", label: "Chưa áp dụng" });
   });
 });

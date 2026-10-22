@@ -17,11 +17,10 @@ const ERR_AUTHORIZATION_CANCELED: i32 = -60006;
 /// The right `AuthorizationExecuteWithPrivileges` checks before it runs a tool.
 const ADMIN_RIGHT: &str = "system.privilege.admin";
 const EXIT_MARKER: &str = "HOSVEN_EXIT:";
-/// Set to `1` by UI tests, so nothing ever asks for a password or runs as root.
-const NO_PRIVILEGED_WRITES: &str = "HOSVEN_NO_PRIVILEGED_WRITES";
 /// The tool the trampoline runs as root. It starts the shell with an empty
-/// environment: the app's own PATH comes from the login shell and may list
-/// folders this user can write to, which must never decide what root runs.
+/// environment: the app's own PATH comes from whatever started it, a terminal
+/// included, and may list folders this user can write to, which must never
+/// decide what root runs.
 const TOOL: &str = "/usr/bin/env";
 const ROOT_PATH: &str = "PATH=/usr/bin:/bin:/usr/sbin:/sbin";
 /// How long a script may run once it has started. The password prompt comes
@@ -52,9 +51,7 @@ impl MacPrivilegedRunner {
     }
 
     fn lock(&self) -> MutexGuard<'_, Option<CachedAuthorization>> {
-        self.cached
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        crate::util::lock(&self.cached)
     }
 
     /// Asks for the admin right up front, which is when the prompt shows.
@@ -78,9 +75,6 @@ impl PrivilegedRunner for MacPrivilegedRunner {
     /// after the tool has started. Neither is bounded, since the user may take
     /// their time typing; the limit starts once the script runs.
     fn run_with_input(&self, script: &str, input: &[u8]) -> RunOutcome {
-        if switched_off(std::env::var(NO_PRIVILEGED_WRITES).ok().as_deref()) {
-            return RunOutcome::Cancelled;
-        }
         // Held for the whole run, so two writes never stack two prompts.
         let mut cached = self.lock();
         let auth = match cached.take() {
@@ -111,10 +105,6 @@ impl PrivilegedRunner for MacPrivilegedRunner {
             Err(TryLockError::WouldBlock) => {}
         }
     }
-}
-
-fn switched_off(value: Option<&str>) -> bool {
-    value == Some("1")
 }
 
 /// `env -i` clears the environment and sets a PATH of system folders only.
@@ -736,14 +726,6 @@ mod tests {
         let text = include_str!("../../tests/fixtures/dscacheutil-host.txt");
         assert_eq!(parse_resolved(text), ["::1", "127.0.0.1", "10.0.0.5"]);
         assert!(parse_resolved("").is_empty());
-    }
-
-    #[test]
-    fn only_the_value_one_turns_privileged_runs_off() {
-        assert!(switched_off(Some("1")));
-        assert!(!switched_off(Some("0")));
-        assert!(!switched_off(Some("")));
-        assert!(!switched_off(None));
     }
 
     #[test]

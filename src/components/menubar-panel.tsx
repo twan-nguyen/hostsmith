@@ -1,6 +1,6 @@
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ChevronDown, Layers, Lock } from "lucide-react";
+import { ChevronDown, Layers } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Banner } from "@/components/banner";
@@ -21,9 +21,10 @@ import {
   portTrailing,
   userPorts,
 } from "@/lib/menubar";
+import { knownRepos } from "@/lib/ports-view";
 import { PROFILE_COLORS } from "@/lib/profile-color";
 import { cn, errorMessage } from "@/lib/utils";
-import { knownRepos, useStore } from "@/store";
+import { useStore } from "@/store";
 
 const PANEL_WIDTH = 340;
 const darkScheme = window.matchMedia("(prefers-color-scheme: dark)");
@@ -162,7 +163,7 @@ export function MenubarPanel() {
               />
             ))}
             {hosts && hosts.active.kind !== "none" && (
-              <Row title="Tắt môi trường" trailing="⌘0" disabled={busy} onClick={() => void switchTo(null)} />
+              <Row title="Tắt môi trường" disabled={busy} onClick={() => void switchTo(null)} />
             )}
           </div>
         )}
@@ -178,10 +179,7 @@ export function MenubarPanel() {
         {shownBlocks.map((row) => (
           <div key={row.profile.id} className="flex min-h-9 items-center gap-3 px-3 py-1">
             <div className="flex min-w-0 flex-1 flex-col">
-              <span className="flex items-center gap-1.5">
-                <span className="truncate">{row.profile.name}</span>
-                <Lock className="size-2.5 shrink-0 text-muted-foreground" />
-              </span>
+              <span className="truncate">{row.profile.name}</span>
               <span className="truncate font-mono text-[11px] text-muted-foreground">{row.mapping}</span>
             </div>
             <Switch

@@ -10,10 +10,6 @@
     --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
     --animate-view-in: view-in 200ms var(--ease-out-quart);
     --animate-fade-in: fade-in 150ms var(--ease-out-quart);
-    --animate-row-flash: row-flash 1.2s var(--ease-out-quart) forwards;
-    --animate-spin-slow: spin 2.4s linear infinite;
-    --animate-orbit: orbit 1.6s linear infinite;
-    --animate-indeterminate: indeterminate 1.4s var(--ease-out-quart) infinite;
 
     @keyframes view-in {
         from { opacity: 0; transform: translateY(4px); }
@@ -21,24 +17,6 @@
     @keyframes fade-in {
         from { opacity: 0; }
     }
-    @keyframes row-flash {
-        from { opacity: 1; }
-        to { opacity: 0; }
-    }
-    /* Turns a conic gradient's start angle, so a light runs around a border. */
-    @keyframes orbit {
-        to { --orbit-angle: 360deg; }
-    }
-    @keyframes indeterminate {
-        from { transform: translateX(-100%); }
-        to { transform: translateX(300%); }
-    }
-}
-
-@property --orbit-angle {
-    syntax: "<angle>";
-    inherits: false;
-    initial-value: 0deg;
 }
 
 @theme inline {

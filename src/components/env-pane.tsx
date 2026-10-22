@@ -1,14 +1,17 @@
-import { Ellipsis, Plus, Search } from "lucide-react";
+import { Ellipsis, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 
-import { Banner, type BannerAction, type BannerTone } from "@/components/banner";
+import { Banner, type BannerAction, PaneBanner } from "@/components/banner";
 import { CodeEditor, type CodeEditorHandle } from "@/components/code-editor";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { EnvKeyDialog } from "@/components/env-key-dialog";
 import { type EnvProfileDialogMode, EnvProfileDialog } from "@/components/env-profile-dialog";
 import { EnvTable } from "@/components/env-table";
 import { PaneEmpty } from "@/components/pane-empty";
+import { PaneSearch } from "@/components/pane-search";
 import { Panel, PanelHeader } from "@/components/panel";
+import { RemoveRepoDialog } from "@/components/remove-dialogs";
 import { SegmentedControl } from "@/components/segmented-control";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,19 +19,14 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { REQUIRED_COMMENT, envStatus } from "@/lib/env-table";
+import { envStatus } from "@/lib/env-table";
 import {
   type EnvEntry,
   type EnvRepo,
   type EnvSnapshot,
   type Exposure,
-  type ToastKind,
-  envAddEntry,
   envAddMissing,
   envApply,
   envApplyRaw,
@@ -38,7 +36,6 @@ import {
   envDismissConflict,
   envProfileApply,
   envReloadFromDisk,
-  envRemoveRepo,
   envSelect,
   envMergeRawDraft,
   envSetRawDraft,
@@ -50,7 +47,7 @@ import {
 } from "@/lib/hosven";
 import { abbreviateHome, joinPath } from "@/lib/paths";
 import { useHomeDir } from "@/lib/use-home-dir";
-import { useToast } from "@/lib/use-toast";
+import { useSaveShortcut } from "@/lib/use-save-shortcut";
 import { cn } from "@/lib/utils";
 import { type EnvViewMode, useStore } from "@/store";
 
@@ -60,12 +57,7 @@ const EXAMPLE_FILE = ".env.example";
 /** How long the raw editor waits after the last keystroke before telling the backend. */
 const DRAFT_DEBOUNCE_MS = 250;
 
-const TOAST_TONE: Record<ToastKind, BannerTone> = { success: "success", error: "danger", info: "info" };
-
 type SavedProfile = EnvRepo["profiles"][number];
-
-/** Keys belong to whatever has focus when a dialog or menu is open. */
-const overlayOpen = () => Boolean(document.querySelector("[role=dialog], [role=alertdialog], [role=menu]"));
 
 /** The selected repo's dotenv file, as a table of variables or as raw text. */
 export function EnvPane() {
@@ -102,7 +94,17 @@ function NoRepos() {
 }
 
 function RepoPane({ repo, env }: { repo: EnvRepo; env: EnvSnapshot }) {
-  const { tools, run, select, envQuery, setEnvQuery, findRequest, envViewMode, setEnvViewMode } = useStore();
+  const { tools, run, select, envQuery, setEnvQuery, envViewMode, setEnvViewMode } = useStore(
+    useShallow((s) => ({
+      tools: s.tools,
+      run: s.run,
+      select: s.select,
+      envQuery: s.envQuery,
+      setEnvQuery: s.setEnvQuery,
+      envViewMode: s.envViewMode,
+      setEnvViewMode: s.setEnvViewMode,
+    })),
+  );
   const home = useHomeDir();
 
   // The snapshot describes this repo once the backend has selected it.
@@ -117,9 +119,7 @@ function RepoPane({ repo, env }: { repo: EnvRepo; env: EnvSnapshot }) {
   const [confirmProfile, setConfirmProfile] = useState<SavedProfile | null>(null);
   const [removing, setRemoving] = useState(false);
   const [exposure, setExposure] = useState<Exposure>("safe");
-  const [toast, dismissToast] = useToast(env.toast);
 
-  const searchInput = useRef<HTMLInputElement>(null);
   const editor = useRef<CodeEditorHandle>(null);
 
   // MARK: - Raw draft
@@ -199,13 +199,15 @@ function RepoPane({ repo, env }: { repo: EnvRepo; env: EnvSnapshot }) {
   // MARK: - Actions
 
   async function apply(force = false) {
-    if (!loaded) return;
-    if (rawPending && draft !== null) {
+    if (!loaded || !file) return;
+    if (mode === "raw") {
+      // The editor's own text is written, never a draft the backend still
+      // holds from before an undo.
       window.clearTimeout(draftTimer.current);
       unsent.current = null;
-      await run(envApplyRaw(draft, force));
+      await run(envApplyRaw(repo.id, file, draft ?? env.text, force));
     } else {
-      await run(envApply(force));
+      await run(envApply(repo.id, file, force));
     }
   }
 
@@ -216,8 +218,9 @@ function RepoPane({ repo, env }: { repo: EnvRepo; env: EnvSnapshot }) {
   }
 
   function discard() {
+    if (!file) return;
     dropDraft();
-    void run(envDiscard());
+    void run(envDiscard(repo.id, file));
   }
 
   const repoDirty = repo.files.some((f) => f.dirty) || rawPending;
@@ -233,28 +236,8 @@ function RepoPane({ repo, env }: { repo: EnvRepo; env: EnvSnapshot }) {
     void run(envProfileApply(repo.id, profile.id));
   }
 
-  // ⌘S applies. The raw editor runs its own ⌘S and marks the event handled.
-  const applyRef = useRef(apply);
-  applyRef.current = apply;
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "s" || e.shiftKey || e.altKey) return;
-      if (e.defaultPrevented || overlayOpen()) return;
-      e.preventDefault();
-      void applyRef.current();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-
-  // ⌘F focuses the search field; the first render is not a request.
-  const seenFind = useRef(findRequest);
-  useEffect(() => {
-    if (findRequest === seenFind.current) return;
-    seenFind.current = findRequest;
-    searchInput.current?.focus();
-    searchInput.current?.select();
-  }, [findRequest]);
+  // ⌘S applies. The raw editor runs its own ⌘S.
+  useSaveShortcut(() => void apply());
 
   // In raw mode the search moves the editor to the next match.
   useEffect(() => {
@@ -283,13 +266,9 @@ function RepoPane({ repo, env }: { repo: EnvRepo; env: EnvSnapshot }) {
   // MARK: - View
 
   const filePath = file ? joinPath(repo.path, file) : repo.path;
-  const status = loaded ? envStatus(env.entries, env.dirty || rawPending, env.missingKeys.length) : null;
-  const banner = pickBanner();
+  const status = loaded ? envStatus(env.entries, env.dirty || rawPending) : null;
 
   function pickBanner(): React.ReactNode {
-    if (toast) {
-      return <Banner tone={TOAST_TONE[toast.kind]} title={toast.message} onDismiss={dismissToast} />;
-    }
     if (!current || !file) return null;
     if (env.conflict === "changed") {
       return (
@@ -297,7 +276,7 @@ function RepoPane({ repo, env }: { repo: EnvRepo; env: EnvSnapshot }) {
           tone="warning"
           title={`${file} vừa đổi bên ngoài Hosven`}
           actions={[
-            { label: "Tải lại từ đĩa", onClick: () => void run(envReloadFromDisk()) },
+            { label: "Tải lại từ đĩa", onClick: () => void run(envReloadFromDisk(repo.id, file)) },
             { label: "Ghi đè bằng bản của tôi", onClick: () => void apply(true) },
           ]}
         >
@@ -338,7 +317,7 @@ function RepoPane({ repo, env }: { repo: EnvRepo; env: EnvSnapshot }) {
           title={`${count} biến trong .env.example thiếu ở đây`}
           actions={[{ label: "Thêm tất cả", onClick: () => void edit(envAddMissing) }]}
         >
-          {env.missingKeys.join(", ")} hiện thành hàng trống để không bị bỏ sót.
+          {env.missingKeys.join(", ")}
         </Banner>
       );
     }
@@ -383,28 +362,17 @@ function RepoPane({ repo, env }: { repo: EnvRepo; env: EnvSnapshot }) {
           )}
         </div>
 
-        <label className="flex h-7 w-44 shrink items-center gap-2 rounded-md px-2 text-muted-foreground transition-colors duration-100 hover:bg-accent focus-within:bg-accent">
-          <Search className="size-3.5 shrink-0" />
-          <input
-            ref={searchInput}
-            data-testid="env-search-field"
-            value={envQuery}
-            onChange={(e) => setEnvQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                if (envQuery) setEnvQuery("");
-                else e.currentTarget.blur();
-              } else if (e.key === "Enter" && mode === "raw" && envQuery.trim()) {
-                editor.current?.find(envQuery.trim());
-              }
-            }}
-            disabled={!loaded}
-            placeholder="Tìm biến"
-            aria-label="Tìm biến"
-            spellCheck={false}
-            className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-50"
-          />
-        </label>
+        <PaneSearch
+          value={envQuery}
+          onChange={setEnvQuery}
+          onEnter={() => {
+            if (mode === "raw" && envQuery.trim()) editor.current?.find(envQuery.trim());
+          }}
+          placeholder="Tìm biến"
+          disabled={!loaded}
+          testId="env-search-field"
+          className="w-48"
+        />
 
         <SegmentedControl
           label="Chế độ xem"
@@ -440,18 +408,6 @@ function RepoPane({ repo, env }: { repo: EnvRepo; env: EnvSnapshot }) {
             <DropdownMenuItem disabled={repo.missing} onSelect={() => setProfileDialog("save")}>
               Lưu trạng thái thành profile
             </DropdownMenuItem>
-            {repo.profiles.length > 0 && (
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger disabled={repo.missing}>Áp dụng profile</DropdownMenuSubTrigger>
-                <DropdownMenuSubContent>
-                  {repo.profiles.map((profile) => (
-                    <DropdownMenuItem key={profile.id} onSelect={() => requestProfile(profile)}>
-                      {profile.name} · {profile.files.length} file
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-            )}
             <DropdownMenuItem onSelect={() => setProfileDialog("manage")}>Profile của repo</DropdownMenuItem>
             {(tools?.terminal || tools?.editor) && <DropdownMenuSeparator />}
             {tools?.terminal && (
@@ -505,7 +461,7 @@ function RepoPane({ repo, env }: { repo: EnvRepo; env: EnvSnapshot }) {
         </div>
       )}
 
-      {banner && <div className="shrink-0 px-5 pt-4">{banner}</div>}
+      <PaneBanner toast={env.toast}>{pickBanner()}</PaneBanner>
 
       <div className="flex min-h-0 flex-1 flex-col">
         {repo.discovery === "repoMissing" ? (
@@ -549,10 +505,8 @@ function RepoPane({ repo, env }: { repo: EnvRepo; env: EnvSnapshot }) {
         ) : (
           <EnvTable
             entries={env.entries}
-            missingKeys={env.missingKeys}
             query={envQuery}
             onAdd={() => setEditing({ entry: null })}
-            onAddMissing={(key) => void run(envAddEntry({ key, value: "", comment: REQUIRED_COMMENT }))}
             onEdit={(entry) => setEditing({ entry })}
             onDelete={setDeleting}
           />
@@ -587,21 +541,7 @@ function RepoPane({ repo, env }: { repo: EnvRepo; env: EnvSnapshot }) {
         onConfirm={() => confirmProfile && applyProfile(confirmProfile)}
         onClose={() => setConfirmProfile(null)}
       />
-      <ConfirmDialog
-        open={removing}
-        title="Xoá repo khỏi danh sách?"
-        description={
-          repo.profiles.length > 0
-            ? `${repo.profiles.length} profile env đã lưu của repo sẽ bị xoá cùng.`
-            : "Hosven chỉ bỏ repo khỏi danh sách."
-        }
-        confirmLabel="Xoá khỏi danh sách"
-        onConfirm={() => {
-          select({ kind: "systemHosts" });
-          void run(envRemoveRepo(repo.id));
-        }}
-        onClose={() => setRemoving(false)}
-      />
+      <RemoveRepoDialog repo={removing ? repo : null} onClose={() => setRemoving(false)} />
     </Panel>
   );
 }

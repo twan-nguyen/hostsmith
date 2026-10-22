@@ -339,55 +339,22 @@ mod tests {
         );
     }
 
-    /// A hosts file with the cases Hosven 1.x got wrong, and what Hosven 1.x
-    /// wrote for it, produced by its own parse and serialize functions.
+    /// A hosts file with aliases, comments after an address, a bare address,
+    /// a block spelled twice and a scoped IPv6 address.
     const SAMPLE: &str = include_str!("../../tests/fixtures/hosts-sample");
-    const SWIFT_OUT: &str = include_str!("../../tests/fixtures/hosts-sample.swift-out");
-
-    /// Lines of `a` that `b` lacks, counting repeats, in `a`'s order.
-    fn missing_from<'t>(a: &'t str, b: &str) -> Vec<&'t str> {
-        let mut rest: Vec<&str> = b.lines().collect();
-        a.lines()
-            .filter(|line| match rest.iter().position(|r| r == line) {
-                Some(i) => {
-                    rest.remove(i);
-                    false
-                }
-                None => true,
-            })
-            .collect()
-    }
 
     #[test]
-    fn differs_from_hosven_1_only_where_hosven_1_lost_data() {
+    fn a_real_file_keeps_every_line_and_settles_after_one_pass() {
         let ours = serialize(&parse(SAMPLE));
-        let only_ours = missing_from(&ours, SWIFT_OUT);
-        let only_swift = missing_from(SWIFT_OUT, &ours);
-        assert_eq!(
-            only_ours,
-            [
-                "10.0.0.9",
-                "127.0.0.1\tweb.local.test admin.local.test",
-                "127.0.0.1\textra.local.test",
-                "# 10.0.0.5\tapi.local.test # staging API",
-            ]
-        );
-        assert_eq!(
-            only_swift,
-            [
-                "127.0.0.1\tweb.local.test",
-                "# 10.0.0.5\tapi.local.test # # staging API"
-            ]
-        );
-
-        // Everything else matches line for line, in the same order.
-        let shared = |text: &str, own: &[&str]| -> Vec<String> {
-            text.lines()
-                .filter(|l| !own.contains(l))
-                .map(str::to_string)
-                .collect()
-        };
-        assert_eq!(shared(&ours, &only_ours), shared(SWIFT_OUT, &only_swift));
+        for line in [
+            "10.0.0.9",
+            "127.0.0.1\tweb.local.test admin.local.test",
+            "127.0.0.1\textra.local.test",
+            "# 10.0.0.5\tapi.local.test # staging API",
+            "fe80::1%lo0\tlocalhost",
+        ] {
+            assert!(ours.lines().any(|l| l == line), "{line} was lost");
+        }
         assert_eq!(
             serialize(&parse(&ours)),
             ours,

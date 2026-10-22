@@ -2,7 +2,7 @@
 //! the write flow. Pure logic; reading and writing the real file happens in
 //! the command layer, so every rule here runs in a plain unit test.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use serde::Serialize;
 use uuid::Uuid;
@@ -12,10 +12,13 @@ use super::model::{HostEntry, Toast, ToastKind};
 use super::parse::{self, Parsed};
 use super::switch::{ActiveState, PendingSwitch};
 use super::verify::{self, Verification};
-use crate::platform::WriteOutcome;
+use crate::platform::RunOutcome;
 use crate::profiles::{self, Profile, ProfileColor, ProfileStore};
+use crate::toast::Toasts;
+use crate::util::changed_lines;
 
 pub const BUSY: &str = "Hosven đang ghi /etc/hosts. Thử lại khi xong.";
+pub const STALE_EDITOR: &str = "Nội dung hosts vừa đổi nên chưa ghi. Trình soạn thảo đã lấy nội dung mới, hãy xem lại rồi áp dụng.";
 
 /// The fields of the entry form.
 #[derive(Debug, Clone, Default, serde::Deserialize)]
@@ -114,8 +117,7 @@ pub struct Hosts {
     load_error: Option<String>,
     verification: Option<Verification>,
     write_seq: u64,
-    toast: Option<Toast>,
-    toast_seq: u64,
+    toasts: Toasts,
 }
 
 impl Hosts {
@@ -137,8 +139,7 @@ impl Hosts {
             load_error: None,
             verification: None,
             write_seq: 0,
-            toast: None,
-            toast_seq: 0,
+            toasts: Toasts::default(),
         };
         if let Some(notice) = loaded.notice {
             hosts.show_toast(notice, ToastKind::Error);
@@ -147,14 +148,16 @@ impl Hosts {
     }
 
     pub fn snapshot(&self) -> Snapshot {
+        // Serialised once: every derived field compares against the same text.
+        let text = self.serialize();
         Snapshot {
-            text: self.serialize(),
+            dirty: self.dirty_with(&text),
+            pending_count: self.pending_count_with(&text),
+            text,
             entries: self.entries.clone(),
             tags: self.tags.clone(),
             profiles: self.profiles.clone(),
             active: self.active_state(),
-            dirty: self.dirty(),
-            pending_count: self.pending_count(),
             can_undo: self.history.can_undo(),
             can_redo: self.history.can_redo(),
             applying: self.applying,
@@ -162,8 +165,12 @@ impl Hosts {
             load_error: self.load_error.clone(),
             verification: self.verification.clone(),
             pending_switch: self.pending_switch.clone(),
-            toast: self.toast.clone(),
+            toast: self.toasts.current().cloned(),
         }
+    }
+
+    pub fn profiles(&self) -> &[Profile] {
+        &self.profiles
     }
 
     // MARK: - Loading
@@ -229,45 +236,51 @@ impl Hosts {
         self.pristine = self.serialize();
     }
 
-    fn draft_pending(&self) -> bool {
-        self.raw_draft
-            .as_ref()
-            .is_some_and(|draft| *draft != self.serialize())
+    /// The raw editor's text when it differs from the model's `text`.
+    fn pending_draft(&self, text: &str) -> Option<&str> {
+        self.raw_draft.as_deref().filter(|draft| *draft != text)
     }
 
     pub fn dirty(&self) -> bool {
-        self.draft_pending() || self.serialize() != self.pristine
+        self.dirty_with(&self.serialize())
+    }
+
+    fn dirty_with(&self, text: &str) -> bool {
+        self.pending_draft(text).is_some() || text != self.pristine
     }
 
     /// Lines that differ between the last clean state and what would be
     /// written now, counting repeated lines each time they occur.
     pub fn pending_count(&self) -> usize {
-        let current = match &self.raw_draft {
-            Some(draft) if self.draft_pending() => draft.clone(),
-            _ => self.serialize(),
-        };
-        let mut balance: HashMap<&str, isize> = HashMap::new();
-        for line in self.pristine.split('\n') {
-            *balance.entry(line).or_default() -= 1;
-        }
-        for line in current.split('\n') {
-            *balance.entry(line).or_default() += 1;
-        }
-        let added: isize = balance.values().filter(|n| **n > 0).sum();
-        let removed: isize = -balance.values().filter(|n| **n < 0).sum::<isize>();
-        let diff = added.max(removed) as usize;
-        if diff == 0 && self.draft_pending() {
+        self.pending_count_with(&self.serialize())
+    }
+
+    fn pending_count_with(&self, text: &str) -> usize {
+        let draft = self.pending_draft(text);
+        let diff = changed_lines(&self.pristine, draft.unwrap_or(text));
+        if diff == 0 && draft.is_some() {
             1
         } else {
             diff
         }
     }
 
+    /// Whether anything is pending and how much, from one serialisation.
+    pub fn pending_state(&self) -> (bool, usize) {
+        let text = self.serialize();
+        (self.dirty_with(&text), self.pending_count_with(&text))
+    }
+
     /// Holds the raw editor's text so an edit or switch started elsewhere
     /// folds the typing in instead of regenerating the editor over it.
-    /// `None` when the editor closes or matches the model again.
-    pub fn set_raw_draft(&mut self, text: Option<String>) {
-        self.raw_draft = text;
+    /// `None` when the editor matches the model again. `base` is the model
+    /// text the typing started from: a draft typed over text that a switch,
+    /// reload or edit has since replaced would undo that change when merged,
+    /// so it is dropped.
+    pub fn set_raw_draft(&mut self, text: Option<String>, base: &str) {
+        if text.is_none() || base == self.serialize() {
+            self.raw_draft = text;
+        }
     }
 
     pub(super) fn merge_raw_draft(&mut self) {
@@ -282,13 +295,17 @@ impl Hosts {
     /// Parses `content` into the model, giving each line that did not change
     /// the id it had, so the UI's references to it stay valid.
     fn reparse_keeping_ids(&mut self, content: &str) {
-        let mut old = std::mem::take(&mut self.entries);
+        let mut old: HashMap<(String, String, Option<String>), VecDeque<Uuid>> = HashMap::new();
+        for o in std::mem::take(&mut self.entries) {
+            old.entry((o.ip, o.hostname, o.tag))
+                .or_default()
+                .push_back(o.id);
+        }
         self.replace_from(content);
         for entry in &mut self.entries {
-            if let Some(i) = old.iter().position(|o| {
-                o.ip == entry.ip && o.hostname == entry.hostname && o.tag == entry.tag
-            }) {
-                entry.id = old.swap_remove(i).id;
+            let key = (entry.ip.clone(), entry.hostname.clone(), entry.tag.clone());
+            if let Some(id) = old.get_mut(&key).and_then(VecDeque::pop_front) {
+                entry.id = id;
             }
         }
     }
@@ -304,7 +321,7 @@ impl Hosts {
     /// Every change to entries starts here: nothing changes while a write is
     /// out, and typing from the raw editor lands first, so the change goes
     /// on top of it.
-    pub(super) fn prepare_edit(&mut self) -> Result<(), String> {
+    fn prepare_edit(&mut self) -> Result<(), String> {
         self.check_idle()?;
         self.merge_raw_draft();
         Ok(())
@@ -408,6 +425,7 @@ impl Hosts {
     }
 
     /// Whether any entry already answers for `hostname`, aliases included.
+    #[cfg(test)]
     pub fn hostname_exists(&self, hostname: &str) -> bool {
         let wanted = hostname.to_lowercase();
         self.entries
@@ -427,6 +445,36 @@ impl Hosts {
             entry.enabled = enabled;
         }
         Ok(())
+    }
+
+    /// Flips a block and writes it at once, for the menu bar panel. Edits
+    /// pending in the window refuse it, since it would write them too. Like a
+    /// switch, it becomes an undo step only once it is on disk.
+    pub fn begin_block_write(&mut self, name: &str, enabled: bool) -> Step {
+        if let Some(reason) = self.write_blocker() {
+            return self.blocked(reason);
+        }
+        if self.dirty() {
+            return Step::Done(Outcome::Refused(self.pending_count()));
+        }
+        let mut block = self
+            .entries
+            .iter()
+            .filter(|e| e.tag.as_deref() == Some(name))
+            .peekable();
+        if block.peek().is_none() || block.all(|e| e.enabled == enabled) {
+            return Step::Done(Outcome::NothingToDo);
+        }
+        let before = self.entries.clone();
+        for entry in self
+            .entries
+            .iter_mut()
+            .filter(|e| e.tag.as_deref() == Some(name))
+        {
+            entry.enabled = enabled;
+        }
+        let toast = format!("Đã {} block {name}", if enabled { "bật" } else { "tắt" });
+        Step::Write(self.begin_switch_write(before, toast))
     }
 
     pub fn tag_entry_count(&self, name: &str) -> usize {
@@ -612,9 +660,16 @@ impl Hosts {
     }
 
     /// Prepares writing the raw editor's text as it is.
-    pub fn begin_apply_raw(&mut self, text: &str) -> Step {
+    /// Writes the raw editor's text, typed over `base`. Text typed over a
+    /// model that has changed since would undo that change, so it is refused
+    /// and the editor takes the new text.
+    pub fn begin_apply_raw(&mut self, text: &str, base: &str) -> Step {
         if let Some(reason) = self.write_blocker() {
             return self.blocked(reason);
+        }
+        if base != self.serialize() {
+            self.show_toast(STALE_EDITOR.into(), ToastKind::Error);
+            return Step::Done(Outcome::NothingToDo);
         }
         if text.trim().is_empty() {
             return self.nothing_to_apply();
@@ -666,10 +721,10 @@ impl Hosts {
 
     /// Records how a prepared write ended. A switch that did not land puts the
     /// entries back, so the model keeps matching the disk.
-    pub fn finish_write(&mut self, job: WriteJob, outcome: WriteOutcome) -> Outcome {
+    pub fn finish_write(&mut self, job: WriteJob, outcome: RunOutcome) -> Outcome {
         self.applying = false;
         match outcome {
-            WriteOutcome::Written => {
+            RunOutcome::Ok => {
                 self.original = job.content.clone();
                 self.raw_draft = None;
                 if job.reparse {
@@ -689,11 +744,12 @@ impl Hosts {
                 self.show_toast(message, ToastKind::Success);
                 Outcome::Written
             }
-            WriteOutcome::Cancelled => {
+            RunOutcome::Cancelled => {
                 self.roll_back(job.rollback);
                 Outcome::Cancelled
             }
-            WriteOutcome::Failed(error) => {
+            failed => {
+                let error = failed.failure().unwrap_or_default();
                 self.roll_back(job.rollback);
                 self.show_toast(
                     format!("Không ghi được /etc/hosts: {error}"),
@@ -721,32 +777,18 @@ impl Hosts {
         self.verification = None;
     }
 
-    /// The text to copy, with a toast that says how many entries it holds.
-    pub fn export(&mut self) -> String {
-        self.show_toast(
-            format!("Đã sao chép {} entry vào clipboard", self.entries.len()),
-            ToastKind::Success,
-        );
-        self.serialize()
-    }
-
     pub fn show_toast(&mut self, message: String, kind: ToastKind) {
-        self.toast_seq += 1;
-        self.toast = Some(Toast {
-            id: self.toast_seq,
-            message,
-            kind,
-        });
+        self.toasts.show(message, kind);
     }
 
     #[cfg(test)]
     pub(super) fn toast(&self) -> Option<&Toast> {
-        self.toast.as_ref()
+        self.toasts.current()
     }
 
     #[cfg(test)]
     pub(super) fn clear_toast(&mut self) {
-        self.toast = None;
+        self.toasts.clear();
     }
 }
 
@@ -809,7 +851,7 @@ pub(super) mod tests {
     pub fn complete(
         hosts: &mut Hosts,
         step: Step,
-        outcome: WriteOutcome,
+        outcome: RunOutcome,
     ) -> (Outcome, Option<String>) {
         match step {
             Step::Write(job) => {
@@ -891,12 +933,15 @@ pub(super) mod tests {
     #[test]
     fn a_raw_draft_is_dirty_only_when_it_differs() {
         let (mut h, _) = hosts(BASE, vec![]);
-        h.set_raw_draft(Some(h.serialize()));
+        h.set_raw_draft(Some(h.serialize()), &h.serialize());
         assert!(!h.dirty());
-        h.set_raw_draft(Some(format!("{BASE}127.0.0.1\ttyped.test\n")));
+        h.set_raw_draft(
+            Some(format!("{BASE}127.0.0.1\ttyped.test\n")),
+            &h.serialize(),
+        );
         assert!(h.dirty());
         assert_eq!(h.pending_count(), 1);
-        h.set_raw_draft(None);
+        h.set_raw_draft(None, &h.serialize());
         assert!(!h.dirty());
     }
 
@@ -905,6 +950,21 @@ pub(super) mod tests {
         let (mut h, _) = hosts(BASE, vec![]);
         h.add_entry(input("127.0.0.1", "localhost")).unwrap();
         assert_eq!(h.pending_count(), 1);
+    }
+
+    #[test]
+    fn the_pending_state_follows_the_draft_and_matches_the_snapshot() {
+        let (mut h, _) = hosts(BASE, vec![]);
+        assert_eq!(h.pending_state(), (false, 0));
+        h.set_raw_draft(Some(h.serialize()), &h.serialize());
+        assert_eq!(h.pending_state(), (false, 0), "typing back the same text");
+        h.set_raw_draft(
+            Some(format!("{BASE}127.0.0.1\ta.test\n127.0.0.1\tb.test\n")),
+            &h.serialize(),
+        );
+        assert_eq!(h.pending_state(), (true, 2));
+        let snapshot = h.snapshot();
+        assert_eq!(h.pending_state(), (snapshot.dirty, snapshot.pending_count));
     }
 
     #[test]
@@ -978,7 +1038,10 @@ pub(super) mod tests {
     #[test]
     fn an_edit_lands_on_top_of_the_raw_draft() {
         let (mut h, _) = hosts(BASE, vec![]);
-        h.set_raw_draft(Some(format!("{BASE}127.0.0.1\ttyped.test\n")));
+        h.set_raw_draft(
+            Some(format!("{BASE}127.0.0.1\ttyped.test\n")),
+            &h.serialize(),
+        );
         let id = h.entries[0].id;
         h.toggle_entry(id).unwrap();
         let job = job(h.begin_apply());
@@ -992,7 +1055,10 @@ pub(super) mod tests {
     #[test]
     fn undo_first_takes_back_the_edit_then_the_typing() {
         let (mut h, _) = hosts(BASE, vec![]);
-        h.set_raw_draft(Some(format!("{BASE}127.0.0.1\ttyped.test\n")));
+        h.set_raw_draft(
+            Some(format!("{BASE}127.0.0.1\ttyped.test\n")),
+            &h.serialize(),
+        );
         h.add_entry(input("127.0.0.1", "form.test")).unwrap();
         h.undo().unwrap();
         assert!(h.hostname_exists("typed.test") && !h.hostname_exists("form.test"));
@@ -1245,13 +1311,13 @@ pub(super) mod tests {
     #[test]
     fn a_raw_write_reparses_and_lists_changed_hostnames() {
         let (mut h, _) = hosts(BASE, vec![]);
-        let step = h.begin_apply_raw(&format!("{BASE}127.0.0.1\tapi.test"));
+        let step = h.begin_apply_raw(&format!("{BASE}127.0.0.1\tapi.test"), &h.serialize());
         let Step::Write(job) = step else { panic!() };
         assert_eq!(
             job.changed,
             [("api.test".to_string(), "127.0.0.1".to_string())]
         );
-        let (outcome, content) = complete(&mut h, Step::Write(job), WriteOutcome::Written);
+        let (outcome, content) = complete(&mut h, Step::Write(job), RunOutcome::Ok);
         assert_eq!(outcome, Outcome::Written);
         assert_eq!(content.unwrap(), format!("{BASE}127.0.0.1\tapi.test\n"));
         assert!(!h.dirty());
@@ -1265,7 +1331,7 @@ pub(super) mod tests {
         let ids: Vec<_> = h.entries.iter().map(|e| e.id).collect();
         let job = job(h.begin_apply());
         assert_eq!(job.content, h.serialize());
-        complete(&mut h, Step::Write(job), WriteOutcome::Written);
+        complete(&mut h, Step::Write(job), RunOutcome::Ok);
         assert_eq!(h.entries.iter().map(|e| e.id).collect::<Vec<_>>(), ids);
         assert!(!h.dirty());
         assert_eq!(h.toast().unwrap().message, "Đã ghi 2 entry vào /etc/hosts");
@@ -1278,12 +1344,15 @@ pub(super) mod tests {
         assert_eq!(h.toast().unwrap().message, "Không có gì để áp dụng");
         h.clear_toast();
         assert!(matches!(
-            h.begin_apply_raw(BASE),
+            h.begin_apply_raw(BASE, &h.serialize()),
             Step::Done(Outcome::NothingToDo)
         ));
         assert_eq!(h.toast().unwrap().kind, ToastKind::Info);
         assert!(
-            matches!(h.begin_apply_raw("127.0.0.1 localhost\n"), Step::Write(_)),
+            matches!(
+                h.begin_apply_raw("127.0.0.1 localhost\n", &h.serialize()),
+                Step::Write(_)
+            ),
             "a formatting change is still a change"
         );
     }
@@ -1291,8 +1360,31 @@ pub(super) mod tests {
     #[test]
     fn apply_folds_in_typing_from_the_raw_editor() {
         let (mut h, _) = hosts(BASE, vec![]);
-        h.set_raw_draft(Some(format!("{BASE}127.0.0.1\ttyped.test\n")));
+        h.set_raw_draft(
+            Some(format!("{BASE}127.0.0.1\ttyped.test\n")),
+            &h.serialize(),
+        );
         assert!(job(h.begin_apply()).content.contains("typed.test"));
+    }
+
+    #[test]
+    fn typing_over_text_the_model_has_replaced_is_not_kept_or_written() {
+        let (mut h, _) = hosts(BASE, vec![]);
+        let before = h.serialize();
+        h.add_entry(input("127.0.0.1", "web.test")).unwrap();
+        h.set_raw_draft(Some(format!("{before}127.0.0.1\ttyped.test\n")), &before);
+        assert!(!h.serialize().contains("typed.test"));
+        assert!(job(h.begin_apply()).content.contains("web.test"));
+
+        let (mut h, _) = hosts(BASE, vec![]);
+        let before = h.serialize();
+        h.add_entry(input("127.0.0.1", "web.test")).unwrap();
+        assert!(matches!(
+            h.begin_apply_raw(&format!("{before}127.0.0.1\ttyped.test\n"), &before),
+            Step::Done(Outcome::NothingToDo)
+        ));
+        assert_eq!(h.toast().unwrap().message, STALE_EDITOR);
+        assert!(!h.applying);
     }
 
     #[test]
@@ -1301,7 +1393,7 @@ pub(super) mod tests {
         h.add_entry(input("127.0.0.1", "web.test")).unwrap();
         h.clear_toast();
         let step = h.begin_apply();
-        let (outcome, _) = complete(&mut h, step, WriteOutcome::Cancelled);
+        let (outcome, _) = complete(&mut h, step, RunOutcome::Cancelled);
         assert_eq!(outcome, Outcome::Cancelled);
         assert!(h.dirty());
         assert!(h.toast().is_none());
@@ -1311,12 +1403,8 @@ pub(super) mod tests {
     #[test]
     fn a_failed_write_shows_the_error() {
         let (mut h, _) = hosts(BASE, vec![]);
-        let step = h.begin_apply_raw(&format!("{BASE}127.0.0.1\tapi.test\n"));
-        complete(
-            &mut h,
-            step,
-            WriteOutcome::Failed("quyền quản trị bị từ chối (mã -60005)".into()),
-        );
+        let step = h.begin_apply_raw(&format!("{BASE}127.0.0.1\tapi.test\n"), &h.serialize());
+        complete(&mut h, step, RunOutcome::Denied(-60005));
         let toast = h.toast().unwrap();
         assert_eq!(toast.kind, ToastKind::Error);
         assert_eq!(
@@ -1336,7 +1424,7 @@ pub(super) mod tests {
         assert_eq!(h.undo().unwrap_err(), BUSY);
         assert_eq!(h.reload(Ok(BASE.into())).unwrap_err(), BUSY);
         assert!(matches!(h.begin_apply(), Step::Done(Outcome::Failed(_))));
-        complete(&mut h, Step::Write(job), WriteOutcome::Written);
+        complete(&mut h, Step::Write(job), RunOutcome::Ok);
         assert!(!h.dirty());
         assert!(h.add_entry(input("127.0.0.1", "b.test")).is_ok());
     }
@@ -1348,7 +1436,7 @@ pub(super) mod tests {
         h.load_failed("stream did not contain valid UTF-8");
         h.add_entry(input("127.0.0.1", "a.test")).unwrap();
         let step = h.begin_apply();
-        let (outcome, content) = complete(&mut h, step, WriteOutcome::Written);
+        let (outcome, content) = complete(&mut h, step, RunOutcome::Ok);
         assert!(matches!(outcome, Outcome::Failed(_)));
         assert!(content.is_none());
         assert!(h.snapshot().load_error.is_some());
@@ -1360,13 +1448,16 @@ pub(super) mod tests {
     fn unchanged_lines_keep_their_ids_through_a_raw_edit() {
         let (mut h, _) = hosts(FIXTURE, vec![]);
         let ids: Vec<Uuid> = h.entries.iter().map(|e| e.id).collect();
-        h.set_raw_draft(Some(h.serialize().replace("api.prod", "api.production")));
+        h.set_raw_draft(
+            Some(h.serialize().replace("api.prod", "api.production")),
+            &h.serialize(),
+        );
         h.toggle_entry(ids[0]).unwrap();
         assert_eq!(h.entries[0].id, ids[0]);
         assert_eq!(h.entries[1].id, ids[1]);
         assert_ne!(h.entries[2].id, ids[2], "the edited line is a new entry");
-        let step = h.begin_apply_raw(&h.serialize());
-        complete(&mut h, step, WriteOutcome::Written);
+        let step = h.begin_apply_raw(&h.serialize(), &h.serialize());
+        complete(&mut h, step, RunOutcome::Ok);
         assert_eq!(h.entries[0].id, ids[0], "a raw write keeps them too");
     }
 
@@ -1383,8 +1474,8 @@ pub(super) mod tests {
     #[test]
     fn its_own_write_is_not_an_outside_change() {
         let (mut h, _) = hosts(BASE, vec![]);
-        let step = h.begin_apply_raw(&format!("{BASE}127.0.0.1\tapi.test\n"));
-        complete(&mut h, step, WriteOutcome::Written);
+        let step = h.begin_apply_raw(&format!("{BASE}127.0.0.1\tapi.test\n"), &h.serialize());
+        complete(&mut h, step, RunOutcome::Ok);
         h.disk_changed(Some(&format!("{BASE}127.0.0.1\tapi.test\n")));
         assert!(!h.snapshot().external_change);
         h.disk_changed(Some("10.0.0.1\tother.test\n"));
@@ -1401,14 +1492,14 @@ pub(super) mod tests {
     #[test]
     fn only_the_latest_write_keeps_its_verification() {
         let (mut h, _) = hosts(BASE, vec![]);
-        let first = job(h.begin_apply_raw(&format!("{BASE}127.0.0.1\ta.test\n")));
+        let first = job(h.begin_apply_raw(&format!("{BASE}127.0.0.1\ta.test\n"), &h.serialize()));
         let first_seq = first.seq;
-        complete(&mut h, Step::Write(first), WriteOutcome::Written);
-        let second = job(h.begin_apply_raw(&format!("{BASE}127.0.0.1\tb.test\n")));
+        complete(&mut h, Step::Write(first), RunOutcome::Ok);
+        let second = job(h.begin_apply_raw(&format!("{BASE}127.0.0.1\tb.test\n"), &h.serialize()));
         h.set_verification(first_seq, verify::run(&[], |_| vec![]));
         assert!(h.snapshot().verification.is_none());
         let second_seq = second.seq;
-        complete(&mut h, Step::Write(second), WriteOutcome::Written);
+        complete(&mut h, Step::Write(second), RunOutcome::Ok);
         h.set_verification(second_seq, verify::run(&[], |_| vec![]));
         assert!(h.snapshot().verification.is_some());
     }

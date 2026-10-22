@@ -81,20 +81,20 @@ export const hostsToggleEntry = (id: string) => invoke<void>("hosts_toggle_entry
 export const hostsDeleteEntry = (id: string) => invoke<void>("hosts_delete_entry", { id });
 export const hostsSetTagEnabled = (name: string, enabled: boolean) =>
   invoke<void>("hosts_set_tag_enabled", { name, enabled });
-export const hostsImport = (text: string) => invoke<number>("hosts_import", { text });
 export const hostsUndo = () => invoke<void>("hosts_undo");
 export const hostsRedo = () => invoke<void>("hosts_redo");
 export const hostsDiscard = () => invoke<void>("hosts_discard");
-export const hostsSetRawDraft = (text: string | null) => invoke<void>("hosts_set_raw_draft", { text });
+/** `base` is the model text the typing started from; a draft over older text is dropped. */
+export const hostsSetRawDraft = (text: string | null, base: string) =>
+  invoke<void>("hosts_set_raw_draft", { text, base });
 export const hostsApply = () => invoke<Outcome>("hosts_apply");
-export const hostsApplyRaw = (text: string) => invoke<Outcome>("hosts_apply_raw", { text });
+export const hostsApplyRaw = (text: string, base: string) => invoke<Outcome>("hosts_apply_raw", { text, base });
 export const hostsSwitchEnvironment = (target: string | null, policy: SwitchPolicy) =>
   invoke<Outcome>("hosts_switch_environment", { target, policy });
 export const hostsConfirmPendingSwitch = () => invoke<Outcome>("hosts_confirm_pending_switch");
 export const hostsCancelPendingSwitch = () => invoke<void>("hosts_cancel_pending_switch");
 export const hostsSwitchPreview = (target: string | null) => invoke<SwitchPreview>("hosts_switch_preview", { target });
 export const hostsDismissVerification = () => invoke<void>("hosts_dismiss_verification");
-export const hostsExport = () => invoke<string>("hosts_export");
 /** Copies /etc/hosts beside itself as root; the outcome arrives as a toast. */
 export const hostsBackup = () => invoke<void>("hosts_backup");
 
@@ -155,7 +155,7 @@ export type PortsSnapshot = {
   toast: Toast | null;
 };
 
-export type KillOutcome = "freed" | "stillRunning" | "cancelled" | "failed";
+export type KillOutcome = "freed" | "stillRunning" | "failed";
 
 export const portsSnapshot = () => invoke<PortsSnapshot>("ports_snapshot");
 export const portsScan = (repos: KnownRepo[]) => invoke<PortsSnapshot>("ports_scan", { repos });
@@ -246,13 +246,17 @@ export const envToggleEntry = (id: string) => invoke<void>("env_toggle_entry", {
 export const envDeleteEntry = (id: string) => invoke<void>("env_delete_entry", { id });
 export const envSelectVariant = (key: string, id: string) => invoke<void>("env_select_variant", { key, id });
 export const envAddMissing = () => invoke<number>("env_add_missing");
-export const envDiscard = () => invoke<void>("env_discard");
+export const envDiscard = (repoId: string, relativePath: string) =>
+  invoke<void>("env_discard", { repoId, relativePath });
 export const envSetRawDraft = (repoId: string, relativePath: string, text: string | null) =>
   invoke<void>("env_set_raw_draft", { repoId, relativePath, text });
 export const envMergeRawDraft = () => invoke<void>("env_merge_raw_draft");
-export const envApply = (force: boolean) => invoke<EnvOutcome>("env_apply", { force });
-export const envApplyRaw = (text: string, force: boolean) => invoke<EnvOutcome>("env_apply_raw", { text, force });
-export const envReloadFromDisk = () => invoke<void>("env_reload_from_disk");
+export const envApply = (repoId: string, relativePath: string, force: boolean) =>
+  invoke<EnvOutcome>("env_apply", { repoId, relativePath, force });
+export const envApplyRaw = (repoId: string, relativePath: string, text: string, force: boolean) =>
+  invoke<EnvOutcome>("env_apply_raw", { repoId, relativePath, text, force });
+export const envReloadFromDisk = (repoId: string, relativePath: string) =>
+  invoke<void>("env_reload_from_disk", { repoId, relativePath });
 export const envRefreshFromDisk = () => invoke<void>("env_refresh_from_disk");
 export const envDismissConflict = () => invoke<void>("env_dismiss_conflict");
 export const envProfileSave = (repoId: string, name: string) => invoke<void>("env_profile_save", { repoId, name });
@@ -265,3 +269,6 @@ export const envProfileDelete = (repoId: string, profileId: string) =>
 
 export const onEnvChanged = (handler: (snapshot: EnvSnapshot) => void): Promise<UnlistenFn> =>
   listen<EnvSnapshot>("env-changed", (event) => handler(event.payload));
+
+/** Tells Rust the main window listens, so links that opened the app run now. */
+export const windowReady = () => invoke<void>("window_ready");

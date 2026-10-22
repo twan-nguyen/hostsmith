@@ -2,14 +2,19 @@
  * What the Ports pane shows about each listening port. Pure, so filters,
  * labels and the scan age are tested without a window.
  */
-import type { ListeningPort, PortOwner } from "@/lib/hosven";
+import type { EnvSnapshot, KnownRepo, ListeningPort, PortOwner } from "@/lib/hosven";
 import { abbreviateHome } from "@/lib/paths";
 import type { PortsFilter } from "@/store";
 
-/** "Tất cả" hides system services; the other two narrow to one kind. */
+/** The repos ports are attributed to: every repo Hosven knows. */
+export function knownRepos(env: EnvSnapshot | null): KnownRepo[] {
+  return env?.repos.map((r) => ({ name: r.name, path: r.path })) ?? [];
+}
+
+/** "Người dùng" hides system services; the other two narrow to one kind. */
 export function filterPorts(ports: ListeningPort[], filter: PortsFilter): ListeningPort[] {
   switch (filter) {
-    case "all":
+    case "user":
       return ports.filter((p) => !p.isSystem);
     case "repos":
       return ports.filter((p) => p.owner.kind === "yours");

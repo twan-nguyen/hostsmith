@@ -1,18 +1,15 @@
 use std::sync::Arc;
 
-use tauri::webview::PageLoadEvent;
 use tauri::{Manager, RunEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_window_state::StateFlags;
 
-mod appearance;
 mod config;
 mod env;
 mod external_tools;
 mod git_exposure;
 mod hosts;
 mod hosts_writer;
-mod login_path;
 mod menu;
 mod platform;
 mod ports;
@@ -21,11 +18,10 @@ mod settings;
 mod toast;
 mod tray;
 mod url_command;
+mod util;
 mod watcher;
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    login_path::adopt();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -43,21 +39,12 @@ pub fn run() {
         .manage(url_command::UrlQueue::default())
         .on_menu_event(menu::handle)
         .on_window_event(tray::on_window_event)
-        .on_page_load(|webview, payload| {
-            if webview.label() == "main" && payload.event() == PageLoadEvent::Finished {
-                url_command::window_loaded(webview.app_handle());
-            }
-        })
         .setup(|app| {
             let settings = settings::SettingsState::load();
             settings::apply(app.handle(), &settings.get())?;
             let show_tray = settings.get().show_menu_bar_extra;
             app.manage(settings);
             let runner: platform::SharedRunner = Arc::new(platform::SystemRunner::new());
-            app.manage(hosts::HostsServices {
-                writer: Arc::new(hosts_writer::SystemHostsWriter::new(runner.clone())),
-                resolve: platform::resolve_host,
-            });
             app.manage(runner);
             app.manage(ports::PortsState::new());
             // Looks the tools up now, so the first menu that names them does
@@ -87,7 +74,6 @@ pub fn run() {
             hosts::hosts_toggle_entry,
             hosts::hosts_delete_entry,
             hosts::hosts_set_tag_enabled,
-            hosts::hosts_import,
             hosts::hosts_undo,
             hosts::hosts_redo,
             hosts::hosts_discard,
@@ -99,7 +85,6 @@ pub fn run() {
             hosts::hosts_cancel_pending_switch,
             hosts::hosts_switch_preview,
             hosts::hosts_dismiss_verification,
-            hosts::hosts_export,
             hosts::hosts_backup,
             hosts::profiles_add,
             hosts::profiles_rename,
@@ -149,6 +134,7 @@ pub fn run() {
             env::env_profile_apply,
             env::env_profile_rename,
             env::env_profile_delete,
+            url_command::window_ready,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

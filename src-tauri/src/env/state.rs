@@ -12,6 +12,7 @@ use uuid::Uuid;
 use super::files::{self, Conflict, Discovery};
 use super::parse::{self, EnvEntry};
 use super::store::{self, EnvStore, Repo};
+use crate::util::changed_lines;
 
 pub const NO_FILE: &str = "Chưa chọn file .env nào";
 pub const REPO_NOT_FOUND: &str = "Không tìm thấy repo";
@@ -58,7 +59,7 @@ pub fn clean_name(name: &str) -> Result<String, String> {
     }
 }
 
-pub use crate::toast::{Toast, ToastKind};
+pub use crate::toast::{Toast, ToastKind, Toasts};
 
 /// A dotenv file as Hosven holds it between reading and writing.
 #[derive(Debug, Clone)]
@@ -117,17 +118,7 @@ impl EnvFile {
             Some(draft) if self.draft_pending() => draft.clone(),
             _ => self.text(),
         };
-        let pristine = parse::format(&self.pristine);
-        let mut balance: HashMap<&str, isize> = HashMap::new();
-        for line in pristine.split('\n') {
-            *balance.entry(line).or_default() -= 1;
-        }
-        for line in current.split('\n') {
-            *balance.entry(line).or_default() += 1;
-        }
-        let added: isize = balance.values().filter(|n| **n > 0).sum();
-        let removed: isize = -balance.values().filter(|n| **n < 0).sum::<isize>();
-        let diff = added.max(removed) as usize;
+        let diff = changed_lines(&parse::format(&self.pristine), &current);
         if diff == 0 && self.dirty() { 1 } else { diff }
     }
 
@@ -255,8 +246,7 @@ pub struct Env {
     pub(super) example: Option<Vec<EnvEntry>>,
     /// Why the selected file could not be read.
     pub(super) load_error: Option<String>,
-    toast: Option<Toast>,
-    toast_seq: u64,
+    toasts: Toasts,
 }
 
 impl Env {
@@ -271,8 +261,7 @@ impl Env {
             loaded: HashMap::new(),
             example: None,
             load_error: None,
-            toast: None,
-            toast_seq: 0,
+            toasts: Toasts::default(),
         };
         for id in env.repos.iter().map(|r| r.id).collect::<Vec<_>>() {
             env.rediscover(id);
@@ -296,7 +285,7 @@ impl Env {
             conflict: selected.and_then(|f| f.conflict),
             load_error: self.load_error.clone(),
             missing_keys: self.missing_keys(),
-            toast: self.toast.clone(),
+            toast: self.toasts.current().cloned(),
         }
     }
 
@@ -347,6 +336,15 @@ impl Env {
             .iter()
             .find(|r| r.id == id)
             .ok_or_else(|| REPO_NOT_FOUND.to_string())
+    }
+
+    /// The repo a `hosven://` link names, matched regardless of case.
+    pub fn repo_id_by_name(&self, name: &str) -> Option<Uuid> {
+        let wanted = name.to_lowercase();
+        self.repos
+            .iter()
+            .find(|r| r.name.to_lowercase() == wanted)
+            .map(|r| r.id)
     }
 
     pub(super) fn repo_index(&self, id: Uuid) -> Result<usize, String> {
@@ -609,8 +607,24 @@ impl Env {
     /// when the editor closes. Naming the file keeps late typing from landing
     /// in another file after the selection moved.
     pub fn set_raw_draft(&mut self, repo_id: Uuid, relative_path: &str, text: Option<String>) {
-        if let Some(file) = self.loaded.get_mut(&(repo_id, relative_path.to_string())) {
+        let key = (repo_id, relative_path.to_string());
+        let selected = self.selected_key().as_ref() == Some(&key);
+        if let Some(file) = self.loaded.get_mut(&key) {
             file.set_raw_draft(text);
+            // No editor shows a file that is no longer selected, so late
+            // typing becomes entries there, visible when the file is opened.
+            if !selected {
+                file.merge_raw_draft();
+            }
+        }
+    }
+
+    /// Refuses a write or reload aimed at a file other than the selected
+    /// one, such as a ⌘S that raced a click on another file.
+    pub fn check_selected(&self, repo_id: Uuid, relative_path: &str) -> Result<(), String> {
+        match self.selected_key() {
+            Some((id, path)) if id == repo_id && path == relative_path => Ok(()),
+            _ => Err("Tệp đang mở vừa đổi. Thử lại.".into()),
         }
     }
 
@@ -623,17 +637,12 @@ impl Env {
     // MARK: - Toast
 
     pub fn show_toast(&mut self, message: String, kind: ToastKind) {
-        self.toast_seq += 1;
-        self.toast = Some(Toast {
-            id: self.toast_seq,
-            message,
-            kind,
-        });
+        self.toasts.show(message, kind);
     }
 
     #[cfg(test)]
     pub(super) fn toast(&self) -> Option<&Toast> {
-        self.toast.as_ref()
+        self.toasts.current()
     }
 
     #[cfg(test)]
@@ -799,6 +808,26 @@ mod tests {
         file.entries[0].value = "2".into();
         file.entries[0].value = "1".into();
         assert!(!file.dirty());
+    }
+
+    #[test]
+    fn late_typing_for_a_file_no_longer_selected_becomes_its_entries() {
+        let mut f = Fixture::new(&[(".env", "A=1\n"), (".env.local", "B=2\n")]);
+        f.env.select(f.repo, Some(".env".into())).unwrap();
+        f.env.select(f.repo, Some(".env.local".into())).unwrap();
+        f.env
+            .set_raw_draft(f.repo, ".env", Some("A=1\nTYPED=1\n".into()));
+        f.env.select(f.repo, Some(".env".into())).unwrap();
+        assert!(f.file().entries.iter().any(|e| e.key == "TYPED"));
+        assert!(f.env.snapshot().text.contains("TYPED=1"));
+    }
+
+    #[test]
+    fn only_the_selected_file_takes_writes_and_reloads() {
+        let mut f = Fixture::new(&[(".env", "A=1\n"), (".env.local", "B=2\n")]);
+        f.env.select(f.repo, Some(".env.local".into())).unwrap();
+        assert!(f.env.check_selected(f.repo, ".env.local").is_ok());
+        assert!(f.env.check_selected(f.repo, ".env").is_err());
     }
 
     #[test]

@@ -6,10 +6,11 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, State, Theme};
+use tauri::window::{Effect, EffectState, EffectsBuilder};
+use tauri::{AppHandle, Emitter, Manager, State, Theme, WebviewWindow};
 
-use crate::appearance;
 use crate::config;
+use crate::util::lock;
 
 pub const EVENT: &str = "settings-changed";
 
@@ -101,9 +102,17 @@ impl SettingsState {
 
     fn load_from(path: PathBuf, legacy: &std::path::Path) -> Self {
         let settings = match std::fs::read(&path) {
-            Ok(bytes) => serde_json::from_slice::<Settings>(&bytes)
-                .map(Settings::clamped)
-                .unwrap_or_default(),
+            Ok(bytes) => match serde_json::from_slice::<Settings>(&bytes) {
+                Ok(settings) => settings.clamped(),
+                Err(error) => {
+                    // Kept aside rather than overwritten by the next change.
+                    let kept = config::set_aside(&path);
+                    eprintln!(
+                        "hosven: settings.json could not be read ({error}); moved to {kept:?}"
+                    );
+                    Settings::default()
+                }
+            },
             Err(_) => {
                 let migrated = Settings::from_legacy(legacy).unwrap_or_default();
                 let _ = config::write_json_atomic(&path, &migrated);
@@ -117,14 +126,11 @@ impl SettingsState {
     }
 
     pub fn get(&self) -> Settings {
-        self.settings
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clone()
+        lock(&self.settings).clone()
     }
 
     fn update(&self, patch: SettingsPatch) -> Result<Settings, String> {
-        let mut settings = self.settings.lock().unwrap_or_else(|p| p.into_inner());
+        let mut settings = lock(&self.settings);
         let mut next = settings.clone();
         if let Some(mode) = patch.appearance_mode {
             next.appearance_mode = mode;
@@ -156,7 +162,20 @@ pub fn apply(app: &AppHandle, settings: &Settings) -> Result<(), String> {
         AppearanceMode::Dark => Some(Theme::Dark),
     };
     window.set_theme(theme).map_err(|e| e.to_string())?;
-    appearance::apply_vibrancy(&window, settings.transparency > 0)
+    apply_vibrancy(&window, settings.transparency > 0)
+}
+
+/// Turns the macOS sidebar material on or off behind the window's content.
+/// The window is always transparent; how much of the blur shows is up to the
+/// UI, which tints the canvas over it.
+fn apply_vibrancy(window: &WebviewWindow, enabled: bool) -> Result<(), String> {
+    let effects = enabled.then(|| {
+        EffectsBuilder::new()
+            .effect(Effect::Sidebar)
+            .state(EffectState::FollowsWindowActiveState)
+            .build()
+    });
+    window.set_effects(effects).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -171,9 +190,11 @@ pub fn settings_update(
     patch: SettingsPatch,
 ) -> Result<Settings, String> {
     let settings = state.update(patch)?;
-    apply(&app, &settings)?;
+    // Saved already, so every window and the tray hear about it even when
+    // the window cannot take the new look.
     crate::tray::set_enabled(&app, settings.show_menu_bar_extra);
     let _ = app.emit(EVENT, settings.clone());
+    apply(&app, &settings)?;
     Ok(settings)
 }
 
@@ -181,7 +202,7 @@ pub fn settings_update(
 #[tauri::command]
 pub fn settings_preview_transparency(app: AppHandle, percent: u8) -> Result<(), String> {
     match app.get_webview_window("main") {
-        Some(window) => appearance::apply_vibrancy(&window, percent > 0),
+        Some(window) => apply_vibrancy(&window, percent > 0),
         None => Ok(()),
     }
 }

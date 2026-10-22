@@ -10,7 +10,7 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, Tray
 use tauri::{AppHandle, Emitter, Manager, Window, WindowEvent};
 use tauri_plugin_positioner::{Position, WindowExt};
 
-use crate::hosts::{self, ActiveState, Hosts, HostsState, Outcome, Step};
+use crate::hosts::{self, ActiveState, Hosts, HostsState, Outcome};
 
 const TRAY_ID: &str = "hosven";
 const MAIN: &str = "main";
@@ -60,7 +60,7 @@ pub struct TrayState(Mutex<Inner>);
 
 impl TrayState {
     fn lock(&self) -> MutexGuard<'_, Inner> {
-        self.0.lock().unwrap_or_else(|p| p.into_inner())
+        crate::util::lock(&self.0)
     }
 }
 
@@ -249,56 +249,13 @@ pub fn keeps_running(app: &AppHandle) -> bool {
 
 // MARK: - Panel commands
 
-/// Prepares flipping a block from the panel and writing it at once. Edits
-/// pending in the window refuse it, since the panel would write them too.
-/// Returns the step and the text the flip produced, to undo it if the write
-/// does not land.
-fn begin_block_toggle(
-    hosts: &mut Hosts,
-    name: &str,
-    enabled: bool,
-) -> Result<(Step, String), Outcome> {
-    if hosts.dirty() {
-        return Err(Outcome::Refused(hosts.pending_count()));
-    }
-    let snapshot = hosts.snapshot();
-    let mut entries = snapshot
-        .entries
-        .iter()
-        .filter(|e| e.tag.as_deref() == Some(name))
-        .peekable();
-    if entries.peek().is_none() || entries.all(|e| e.enabled == enabled) {
-        return Err(Outcome::NothingToDo);
-    }
-    hosts
-        .set_tag_enabled(name, enabled)
-        .map_err(Outcome::Failed)?;
-    let flipped = hosts.serialize();
-    Ok((hosts.begin_apply(), flipped))
-}
-
-/// Puts the model back when the write of a panel flip did not land, unless
-/// it has moved on since.
-fn undo_block_toggle(hosts: &mut Hosts, flipped: &str) {
-    if hosts.serialize() == flipped {
-        let _ = hosts.undo();
-    }
-}
-
 #[tauri::command]
 pub async fn panel_toggle_block(app: AppHandle, name: String, enabled: bool) -> Outcome {
-    let begun = begin_block_toggle(&mut app.state::<HostsState>().lock(), &name, enabled);
-    let (step, flipped) = match begun {
-        Ok(begun) => begun,
-        Err(outcome) => return outcome,
-    };
-    let outcome = hosts::run(app.clone(), step).await;
-    if outcome != Outcome::Written {
-        hosts::mutate(&app, &app.state::<HostsState>(), |h| {
-            undo_block_toggle(h, &flipped)
-        });
-    }
-    outcome
+    let step = app
+        .state::<HostsState>()
+        .lock()
+        .begin_block_write(&name, enabled);
+    hosts::run(app.clone(), step).await
 }
 
 /// Shows the main window, on `selection` when given (the sidebar's format).
@@ -325,7 +282,8 @@ pub fn panel_quit(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::platform::WriteOutcome;
+    use crate::hosts::Step;
+    use crate::platform::RunOutcome;
     use crate::profiles::{MemoryStore, Profile, ProfileColor};
 
     #[test]
@@ -371,7 +329,7 @@ mod tests {
         hosts
     }
 
-    fn finish(hosts: &mut Hosts, step: Step, written: WriteOutcome) -> Outcome {
+    fn finish(hosts: &mut Hosts, step: Step, written: RunOutcome) -> Outcome {
         match step {
             Step::Write(job) => hosts.finish_write(job, written),
             Step::Done(outcome) => outcome,
@@ -379,30 +337,26 @@ mod tests {
     }
 
     #[test]
-    fn a_flip_writes_at_once() {
+    fn a_flip_writes_at_once_as_one_undo_step() {
         let mut hosts = model();
-        let (step, _) = begin_block_toggle(&mut hosts, "Mocks", true).unwrap();
-        assert_eq!(
-            finish(&mut hosts, step, WriteOutcome::Written),
-            Outcome::Written
-        );
+        let step = hosts.begin_block_write("Mocks", true);
+        assert_eq!(finish(&mut hosts, step, RunOutcome::Ok), Outcome::Written);
         assert!(!hosts.dirty());
         assert!(hosts.serialize().contains("\n127.0.0.1\tmock.test"));
+        assert!(hosts.snapshot().can_undo);
     }
 
     #[test]
-    fn a_flip_that_does_not_land_is_undone() {
-        for written in [
-            WriteOutcome::Cancelled,
-            WriteOutcome::Failed("denied".into()),
-        ] {
+    fn a_flip_that_does_not_land_leaves_the_model_and_history_alone() {
+        for written in [RunOutcome::Cancelled, RunOutcome::Denied(-60005)] {
             let mut hosts = model();
             let before = hosts.serialize();
-            let (step, flipped) = begin_block_toggle(&mut hosts, "Tools", false).unwrap();
+            let step = hosts.begin_block_write("Tools", false);
             assert_ne!(finish(&mut hosts, step, written), Outcome::Written);
-            undo_block_toggle(&mut hosts, &flipped);
             assert_eq!(hosts.serialize(), before);
             assert!(!hosts.dirty());
+            let snapshot = hosts.snapshot();
+            assert!(!snapshot.can_undo && !snapshot.can_redo);
         }
     }
 
@@ -412,8 +366,8 @@ mod tests {
         hosts.set_tag_enabled("Mocks", true).unwrap();
         let before = hosts.serialize();
         assert!(matches!(
-            begin_block_toggle(&mut hosts, "Tools", false),
-            Err(Outcome::Refused(1))
+            hosts.begin_block_write("Tools", false),
+            Step::Done(Outcome::Refused(1))
         ));
         assert_eq!(hosts.serialize(), before, "nothing was flipped");
     }
@@ -422,24 +376,13 @@ mod tests {
     fn a_flip_to_the_state_the_block_has_does_nothing() {
         let mut hosts = model();
         assert!(matches!(
-            begin_block_toggle(&mut hosts, "Tools", true),
-            Err(Outcome::NothingToDo)
+            hosts.begin_block_write("Tools", true),
+            Step::Done(Outcome::NothingToDo)
         ));
         assert!(matches!(
-            begin_block_toggle(&mut hosts, "Nope", true),
-            Err(Outcome::NothingToDo)
+            hosts.begin_block_write("Nope", true),
+            Step::Done(Outcome::NothingToDo)
         ));
         assert!(!hosts.snapshot().can_undo);
-    }
-
-    #[test]
-    fn an_undo_does_not_clobber_edits_made_since() {
-        let mut hosts = model();
-        let (step, flipped) = begin_block_toggle(&mut hosts, "Tools", false).unwrap();
-        finish(&mut hosts, step, WriteOutcome::Cancelled);
-        hosts.set_tag_enabled("Mocks", true).unwrap();
-        let edited = hosts.serialize();
-        undo_block_toggle(&mut hosts, &flipped);
-        assert_eq!(hosts.serialize(), edited);
     }
 }

@@ -14,6 +14,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
+use crate::util::lock;
 use crate::watcher::FileWatcher;
 pub use files::Outcome;
 pub use state::{EntryInput, Env, Snapshot};
@@ -60,7 +61,7 @@ impl EnvState {
     /// is waiting for that lock would otherwise never let the old watch stop.
     fn sync_watch(&self, notify: Notify) {
         let target = self.lock().watch_target();
-        let mut watch = self.watch.lock().unwrap_or_else(|p| p.into_inner());
+        let mut watch = lock(&self.watch);
         let current = watch
             .as_ref()
             .map(|w| (w.repo_id, w.relative_path.as_str()));
@@ -75,7 +76,7 @@ impl EnvState {
         let watched = relative_path.clone();
         // Hosven's own writes leave the content it recorded, which the model
         // recognises and ignores.
-        let watcher = FileWatcher::new(&path, DEBOUNCE, move |_| {
+        let watcher = FileWatcher::new(&path, DEBOUNCE, move || {
             let mut env = lock(&env);
             if env.refresh_watched(repo_id, &watched) {
                 notify(&env);
@@ -94,10 +95,6 @@ impl EnvState {
             Err(error) => eprintln!("hosven: not watching {}: {error}", path.display()),
         }
     }
-}
-
-fn lock(env: &Mutex<Env>) -> MutexGuard<'_, Env> {
-    env.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn emit(app: &AppHandle, env: &Env) {
@@ -234,8 +231,16 @@ pub fn env_add_missing(app: AppHandle, state: State<'_, EnvState>) -> Result<usi
 }
 
 #[tauri::command]
-pub fn env_discard(app: AppHandle, state: State<'_, EnvState>) -> Result<(), String> {
-    mutate(&app, &state, Env::discard)
+pub fn env_discard(
+    app: AppHandle,
+    state: State<'_, EnvState>,
+    repo_id: Uuid,
+    relative_path: String,
+) -> Result<(), String> {
+    mutate(&app, &state, |e| {
+        e.check_selected(repo_id, &relative_path)?;
+        e.discard()
+    })
 }
 
 #[tauri::command]
@@ -260,24 +265,42 @@ pub fn env_merge_raw_draft(app: AppHandle, state: State<'_, EnvState>) -> Result
 pub fn env_apply(
     app: AppHandle,
     state: State<'_, EnvState>,
+    repo_id: Uuid,
+    relative_path: String,
     force: bool,
 ) -> Result<Outcome, String> {
-    mutate(&app, &state, |e| e.apply(force))
+    mutate(&app, &state, |e| {
+        e.check_selected(repo_id, &relative_path)?;
+        e.apply(force)
+    })
 }
 
 #[tauri::command]
 pub fn env_apply_raw(
     app: AppHandle,
     state: State<'_, EnvState>,
+    repo_id: Uuid,
+    relative_path: String,
     text: String,
     force: bool,
 ) -> Result<Outcome, String> {
-    mutate(&app, &state, |e| e.apply_raw(&text, force))
+    mutate(&app, &state, |e| {
+        e.check_selected(repo_id, &relative_path)?;
+        e.apply_raw(&text, force)
+    })
 }
 
 #[tauri::command]
-pub fn env_reload_from_disk(app: AppHandle, state: State<'_, EnvState>) -> Result<(), String> {
-    mutate(&app, &state, Env::reload_from_disk)
+pub fn env_reload_from_disk(
+    app: AppHandle,
+    state: State<'_, EnvState>,
+    repo_id: Uuid,
+    relative_path: String,
+) -> Result<(), String> {
+    mutate(&app, &state, |e| {
+        e.check_selected(repo_id, &relative_path)?;
+        e.reload_from_disk()
+    })
 }
 
 /// For the window to call when it gains focus, a backstop for watcher events

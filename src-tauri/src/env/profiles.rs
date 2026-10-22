@@ -150,13 +150,10 @@ impl Env {
         repo_name: &str,
         profile_name: &str,
     ) -> Result<(), String> {
-        let wanted = repo_name.to_lowercase();
-        let repo = self
-            .repos
-            .iter()
-            .find(|r| r.name.to_lowercase() == wanted)
+        let repo_id = self
+            .repo_id_by_name(repo_name)
             .ok_or_else(|| format!("Không có repo tên {repo_name}"))?;
-        let repo_id = repo.id;
+        let repo = self.repo(repo_id)?;
         let wanted = profile_name.to_lowercase();
         let profile = repo
             .profiles
@@ -167,6 +164,16 @@ impl Env {
         self.select(repo_id, None)?;
         let profile = profile
             .ok_or_else(|| format!("Repo {repo_label} không có profile tên {profile_name}"))?;
+        // A link cannot ask before dropping edits, so it leaves them alone.
+        if self
+            .loaded
+            .iter()
+            .any(|((id, _), file)| *id == repo_id && file.dirty())
+        {
+            return Err(format!(
+                "Repo {repo_label} có thay đổi chưa áp dụng nên chưa đổi profile"
+            ));
+        }
         self.apply_profile(repo_id, profile)
     }
 
@@ -328,6 +335,19 @@ mod tests {
         );
         f.env.apply_profile_by_names(&repo_name, "STAGING").unwrap();
         assert_eq!(f.disk(".env"), "DB=staging\n");
+    }
+
+    #[test]
+    fn a_link_leaves_unapplied_edits_alone() {
+        let mut f = repo_with_two_files();
+        f.env.save_profile(f.repo, "Staging").unwrap();
+        f.edit_db("typed");
+        let before = f.disk(".env");
+        let name = f.env.repos[0].name.clone();
+        let result = f.env.apply_profile_by_names(&name, "staging");
+        assert!(result.unwrap_err().contains("chưa áp dụng"));
+        assert_eq!(f.disk(".env"), before);
+        assert!(f.file().dirty());
     }
 
     impl Fixture {

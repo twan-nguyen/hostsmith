@@ -294,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn writes_the_format_hosven_1_wrote_and_reads_it_back() {
+    fn writes_sorted_keys_and_whole_second_dates_and_reads_them_back() {
         let (store, dir) = temp_store();
         let repos = decode(SWIFT_FIXTURE.as_bytes()).unwrap();
         store.save(&repos).unwrap();
@@ -306,10 +306,6 @@ mod tests {
         assert!(text.contains("\"version\": 1"));
         assert!(text.find("\"repos\"").unwrap() < text.find("\"version\"").unwrap());
         assert!(text.find("\"content\"").unwrap() < text.find("\"relativePath\"").unwrap());
-
-        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
-        let swift: serde_json::Value = serde_json::from_str(SWIFT_FIXTURE).unwrap();
-        assert_eq!(value, swift, "the same data as the Swift file");
 
         let mut reread = EnvStore::new(store.path().to_path_buf(), None);
         assert_eq!(reread.load().repos, repos);

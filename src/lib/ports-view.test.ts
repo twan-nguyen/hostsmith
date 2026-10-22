@@ -35,8 +35,8 @@ const system = port({ port: 5000, process: "ControlCenter", pid: 300, isSystem: 
 const all = [yours, container, stranger, system];
 
 describe("filters", () => {
-  it("shows everything but system services under Tất cả", () => {
-    expect(filterPorts(all, "all")).toEqual([yours, container, stranger]);
+  it("shows everything but system services under Người dùng", () => {
+    expect(filterPorts(all, "user")).toEqual([yours, container, stranger]);
   });
 
   it("narrows to repo ports and to system services", () => {

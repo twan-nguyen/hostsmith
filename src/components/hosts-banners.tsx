@@ -1,20 +1,7 @@
-import { Banner, type BannerAction, type BannerTone } from "@/components/banner";
-import {
-  type Toast,
-  type ToastKind,
-  hostsDismissVerification,
-  hostsReload,
-  toolsOpenChromeDns,
-} from "@/lib/hosven";
+import { Banner, type BannerAction } from "@/components/banner";
+import { hostsDismissVerification, hostsReload, toolsOpenChromeDns } from "@/lib/hosven";
 import { verificationSummary } from "@/lib/hosts-view";
 import { useStore } from "@/store";
-
-const TOAST_TONES: Record<ToastKind, BannerTone> = { success: "success", error: "danger", info: "info" };
-
-/** A toast from the hosts model, in the banner slot for three seconds. */
-export function ToastBanner({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
-  return <Banner tone={TOAST_TONES[toast.kind]} title={toast.message} onDismiss={onDismiss} />;
-}
 
 /** Another tool wrote /etc/hosts; nothing is written until it is read again. */
 export function ExternalChangeBanner() {

@@ -1,22 +1,14 @@
-import {
-  ArrowLeftRight,
-  Copy,
-  Ellipsis,
-  FileText,
-  Network,
-  Pencil,
-  Plus,
-  Trash2,
-} from "lucide-react";
+import { ArrowLeftRight, Copy, Ellipsis, FileText, Pencil, Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Banner } from "@/components/banner";
+import { Banner, PaneBanner } from "@/components/banner";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { EntryDialog } from "@/components/entry-dialog";
 import { EnvironmentConflictBanner } from "@/components/environment-conflict-banner";
-import { ToastBanner } from "@/components/hosts-banners";
-import { Panel, PanelHeader } from "@/components/panel";
+import { PaneEmpty } from "@/components/pane-empty";
+import { Panel, PanelHeader, PendingPill } from "@/components/panel";
 import { ProfileDialog } from "@/components/profile-dialog";
+import { RemoveProfileDialog } from "@/components/remove-dialogs";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -45,18 +37,16 @@ import {
   hostsSwitchEnvironment,
   hostsSwitchPreview,
   hostsToggleEntry,
-  profilesRemove,
   profilesSetExclusive,
 } from "@/lib/hosven";
 import { activationSummary, profileBanner, profileSubtitle } from "@/lib/hosts-view";
+import { overlayOpen } from "@/lib/overlay";
 import { PROFILE_COLORS } from "@/lib/profile-color";
 import { useSaveShortcut } from "@/lib/use-save-shortcut";
-import { useToast } from "@/lib/use-toast";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store";
 
 const GRID = { gridTemplateColumns: "minmax(110px,150px) minmax(0,1.2fr) minmax(0,1fr) 40px" };
-const ADMIN_ONCE = "Cần quyền quản trị một lần mỗi phiên.";
 
 /**
  * Keys belong to whatever has focus when it takes text or runs its own
@@ -69,7 +59,7 @@ function keysAreTaken(event: KeyboardEvent) {
     if (target.closest("input, textarea, select, [contenteditable=true], .cm-editor")) return true;
     if ((event.key === "Enter" || event.key === " ") && target.closest("button, a, [role=switch]")) return true;
   }
-  return Boolean(document.querySelector("[role=dialog], [role=alertdialog], [role=menu]"));
+  return overlayOpen();
 }
 
 /**
@@ -84,7 +74,6 @@ export function ProfilePane({ profile }: { profile: Profile }) {
   const hosts = useStore((s) => s.hosts);
   const run = useStore((s) => s.run);
   const select = useStore((s) => s.select);
-  const [toast, dismissToast] = useToast(hosts?.toast ?? null);
 
   const [editingProfile, setEditingProfile] = useState(false);
   const [deletingProfile, setDeletingProfile] = useState(false);
@@ -103,7 +92,7 @@ export function ProfilePane({ profile }: { profile: Profile }) {
   const color = PROFILE_COLORS[profile.color];
   const at = Math.min(cursor, entries.length - 1);
 
-  const banner = profileBanner({ hosts, toast, profile, entryCount: entries.length, active });
+  const banner = profileBanner({ hosts, profile, entryCount: entries.length, active });
 
   // What activating would turn on and off, read again whenever the entries change.
   const [preview, setPreview] = useState<SwitchPreview | null>(null);
@@ -164,11 +153,6 @@ export function ProfilePane({ profile }: { profile: Profile }) {
     return () => window.removeEventListener("keydown", listener);
   }, []);
 
-  async function removeProfile() {
-    const removed = await run(profilesRemove(profile.id).then(() => true));
-    if (removed) select({ kind: "systemHosts" });
-  }
-
   return (
     <Panel>
       <PanelHeader>
@@ -184,6 +168,7 @@ export function ProfilePane({ profile }: { profile: Profile }) {
         {color.environment && (
           <span className={cn("shrink-0 rounded px-1.5 py-px text-[11px] font-medium", color.chip)}>{color.label}</span>
         )}
+        {dirty && <PendingPill count={hosts?.pendingCount ?? 0} testId="profile-pending" />}
 
         <div className="ml-auto flex shrink-0 items-center gap-2">
           <DropdownMenu>
@@ -262,30 +247,15 @@ export function ProfilePane({ profile }: { profile: Profile }) {
         </div>
       </PanelHeader>
 
-      {banner && (banner !== "activation" || preview) && (
-        <div className="shrink-0 px-4 pt-3">
-          {banner === "toast" && toast && <ToastBanner toast={toast} onDismiss={dismissToast} />}
-          {banner === "conflict" && hosts?.active.kind === "conflict" && (
-            <EnvironmentConflictBanner ids={hosts.active.ids} />
-          )}
-          {banner === "unsaved" && (
-            <Banner tone="info" title={`${hosts?.pendingCount ?? 0} thay đổi chưa ghi vào /etc/hosts`}>
-              {ADMIN_ONCE}
-            </Banner>
-          )}
-          {banner === "active" && (
-            <Banner
-              tone="success"
-              title={`${profile.name} đang bật với ${enabledCount} trong ${entries.length} entry`}
-            />
-          )}
-          {banner === "activation" && preview && (
-            <Banner tone="info" title={activationSummary(profile.name, preview)}>
-              {ADMIN_ONCE}
-            </Banner>
-          )}
-        </div>
-      )}
+      <PaneBanner toast={hosts?.toast ?? null}>
+        {banner === "conflict" && hosts?.active.kind === "conflict" ? (
+          <EnvironmentConflictBanner ids={hosts.active.ids} />
+        ) : banner === "activation" && preview ? (
+          <Banner tone="info" title={activationSummary(profile.name, preview)}>
+            Cần quyền quản trị một lần mỗi phiên.
+          </Banner>
+        ) : null}
+      </PaneBanner>
 
       <div className="flex h-10 shrink-0 items-center gap-2 px-5 pt-1 text-xs text-muted-foreground">
         <span className="flex-1 tabular-nums">
@@ -311,16 +281,12 @@ export function ProfilePane({ profile }: { profile: Profile }) {
 
       <div ref={list} role="grid" aria-label="Entries" className="min-h-0 flex-1 overflow-y-auto">
         {entries.length === 0 ? (
-          <div className="flex animate-fade-in flex-col items-center gap-1 px-8 py-20 text-center">
-            <Network className="mb-2 size-5 text-muted-foreground" />
-            <div className="font-medium">Chưa có entry</div>
-            <div className="max-w-sm text-muted-foreground">
-              Thêm hostname vào {profile.name} để profile này có tác dụng khi kích hoạt.
-            </div>
-            <Button className="mt-3" onClick={() => setEntryForm({ entry: null })}>
-              Thêm entry
-            </Button>
-          </div>
+          <PaneEmpty
+            title="Chưa có entry"
+            detail={`Thêm hostname vào ${profile.name} để profile này có tác dụng khi kích hoạt.`}
+          >
+            <Button onClick={() => setEntryForm({ entry: null })}>Thêm entry</Button>
+          </PaneEmpty>
         ) : (
           <>
             <div
@@ -417,14 +383,7 @@ export function ProfilePane({ profile }: { profile: Profile }) {
         onClose={() => setEntryForm(null)}
       />
       <ProfileDialog open={editingProfile} profile={profile} onClose={() => setEditingProfile(false)} />
-      <ConfirmDialog
-        open={deletingProfile}
-        title="Xoá profile?"
-        description={`Xoá metadata của profile ${profile.name}. Các entry trong /etc/hosts được giữ nguyên.`}
-        confirmLabel="Xoá profile"
-        onConfirm={() => void removeProfile()}
-        onClose={() => setDeletingProfile(false)}
-      />
+      <RemoveProfileDialog profile={deletingProfile ? profile : null} onClose={() => setDeletingProfile(false)} />
       <ConfirmDialog
         open={deletingEntry !== null}
         title="Xoá entry?"

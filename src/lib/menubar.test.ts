@@ -92,6 +92,11 @@ describe("menu bar panel", () => {
     ]);
   });
 
+  it("marks every environment that is on while they conflict", () => {
+    const conflict = snapshot({ active: { kind: "conflict", ids: ["local", "staging"] } });
+    expect(environmentRows(conflict).map((r) => r.active)).toEqual([true, true]);
+  });
+
   it("lists blocks with entries and their mapping", () => {
     expect(blockRows(snapshot()).map((r) => [r.profile.name, r.mapping, r.on])).toEqual([
       ["Docker", "127.0.0.1 → db.test", false],
@@ -107,7 +112,7 @@ describe("menu bar panel", () => {
       port({ id: "d", needsAttention: true }),
     ];
     const shown = userPorts({ ports, scannedAt: null, scanning: false, toast: null });
-    expect(shown.map(portTrailing)).toEqual(["api", "docker", "Dừng"]);
+    expect(shown.map(portTrailing)).toEqual(["api", "docker", "Xem"]);
     expect(portTitle(ports[3])).toBe("3000  node · không rõ");
     expect(portTrailing(port({}))).toBe("me");
   });

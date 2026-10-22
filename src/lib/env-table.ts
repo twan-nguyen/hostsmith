@@ -12,9 +12,6 @@ const ENV_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 export const INVALID_KEY_MESSAGE = "Khoá chỉ gồm chữ cái không dấu, chữ số và dấu _, không bắt đầu bằng chữ số";
 
-/** The comment a variable added from `.env.example` carries into the file. */
-export const REQUIRED_COMMENT = "bắt buộc theo .env.example";
-
 const BULLET = "•";
 
 export const isSecretKey = (key: string) => SECRET_KEY.test(key);
@@ -88,20 +85,13 @@ export function tableRows(entries: EnvEntry[], query: string): TableRow[] {
   return rows;
 }
 
-/** Keys `.env.example` defines and the file lacks, narrowed by the search. */
-export function missingRows(missingKeys: string[], query: string): string[] {
-  const q = query.trim().toLowerCase();
-  return q ? missingKeys.filter((key) => key.toLowerCase().includes(q)) : missingKeys;
-}
-
 /** Variables, switched off ones included, as the write toast counts them. */
 export const variableCount = (entries: EnvEntry[]) => entries.filter((e) => !e.isBlankOrComment).length;
 
 export type EnvStatus = { tone: "warning" | "ok"; label: string };
 
-/** The toolbar status: missing variables first, then pending edits, then the count. */
-export function envStatus(entries: EnvEntry[], dirty: boolean, missingCount: number): EnvStatus {
-  if (missingCount > 0) return { tone: "warning", label: `${missingCount} biến thiếu` };
+/** The toolbar status: pending edits, otherwise the count. Missing variables have their own banner. */
+export function envStatus(entries: EnvEntry[], dirty: boolean): EnvStatus {
   if (dirty) return { tone: "warning", label: "Chưa áp dụng" };
   return { tone: "ok", label: `${variableCount(entries)} biến` };
 }

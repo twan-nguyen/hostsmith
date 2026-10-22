@@ -4,24 +4,15 @@ import { fuzzyMatch } from "./fuzzy";
 
 describe("fuzzyMatch", () => {
   it("matches everything at a neutral score for an empty query", () => {
-    expect(fuzzyMatch("", "anything")).toEqual({ score: 0, ranges: [] });
-  });
-
-  it("returns the runs of matched characters", () => {
-    const m = fuzzyMatch("rls", "Release")!;
-    expect(m.ranges).toEqual([
-      [0, 1],
-      [2, 3],
-      [5, 6],
-    ]);
+    expect(fuzzyMatch("", "anything")).toBe(0);
   });
 
   it("scores consecutive matches above scattered ones", () => {
-    expect(fuzzyMatch("rel", "Release")!.score).toBeGreaterThan(fuzzyMatch("rel", "rXeXl")!.score);
+    expect(fuzzyMatch("rel", "Release")!).toBeGreaterThan(fuzzyMatch("rel", "rXeXl")!);
   });
 
   it("prefers a match at the start of a word", () => {
-    expect(fuzzyMatch("p", "Production")!.score).toBeGreaterThan(fuzzyMatch("p", "tap")!.score);
+    expect(fuzzyMatch("p", "Production")!).toBeGreaterThan(fuzzyMatch("p", "tap")!);
   });
 
   it("returns null when the query is not a subsequence", () => {
@@ -29,11 +20,12 @@ describe("fuzzyMatch", () => {
   });
 
   it("rewards exact case", () => {
-    expect(fuzzyMatch("Re", "Release")!.score).toBeGreaterThan(fuzzyMatch("re", "Release")!.score);
+    expect(fuzzyMatch("Re", "Release")!).toBeGreaterThan(fuzzyMatch("re", "Release")!);
   });
 
   it("counts characters, not UTF-16 units", () => {
-    expect(fuzzyMatch("b", "😀b")!.ranges).toEqual([[1, 2]]);
+    // An emoji is one character, so both candidates are two long.
+    expect(fuzzyMatch("b", "😀b")).toBe(fuzzyMatch("b", "-b"));
   });
 
   it("searches a thousand candidates in under 50 ms", () => {

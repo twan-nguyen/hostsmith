@@ -1,5 +1,6 @@
 import { EnvPane } from "@/components/env-pane";
 import { HostsPane } from "@/components/hosts-pane";
+import { Panel } from "@/components/panel";
 import { PortsPane } from "@/components/ports-pane";
 import { ProfilePane } from "@/components/profile-pane";
 import { SettingsView } from "@/components/settings-view";
@@ -22,6 +23,8 @@ export function PaneRouter() {
     case "envFile":
       return <EnvPane key={key} />;
     case "profile": {
+      // Until the first snapshot there is no telling a profile from a missing one.
+      if (!hosts) return <Panel />;
       const profile = hosts?.profiles.find((p) => p.id === selection.id);
       return profile ? <ProfilePane key={key} profile={profile} /> : <HostsPane key="hosts" />;
     }

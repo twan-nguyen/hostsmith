@@ -1,10 +1,10 @@
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { create } from "zustand";
 
 import {
   type EnvSnapshot,
   type HostsSnapshot,
-  type KnownRepo,
   type PortsSnapshot,
   type Settings,
   type Toast,
@@ -22,7 +22,7 @@ import {
   settingsGet,
   toolsDetect,
 } from "@/lib/hosven";
-import { type Selection, formatSelection, parseSelection } from "@/lib/selection";
+import { type Selection, formatSelection, parseSelection, sameSelection } from "@/lib/selection";
 import { errorMessage } from "@/lib/utils";
 
 /** Layout and view preferences that live in the webview, per machine. */
@@ -36,7 +36,7 @@ const PREFS = {
 } as const;
 
 // Storage can be unavailable or full; every preference has a default.
-export function readPref(key: string): string | null {
+function readPref(key: string): string | null {
   try {
     return localStorage.getItem(key);
   } catch {
@@ -44,7 +44,7 @@ export function readPref(key: string): string | null {
   }
 }
 
-export function writePref(key: string, value: string) {
+function writePref(key: string, value: string) {
   try {
     localStorage.setItem(key, value);
   } catch {
@@ -55,8 +55,7 @@ export function writePref(key: string, value: string) {
 export const SIDEBAR = { min: 200, max: 320, collapseBelow: 140, initial: 248 } as const;
 
 export type EnvViewMode = "table" | "raw";
-export type PortsFilter = "all" | "repos" | "system";
-export type SettingsPage = "general" | "profiles";
+export type PortsFilter = "user" | "repos" | "system";
 
 type State = {
   hosts: HostsSnapshot | null;
@@ -68,7 +67,6 @@ type State = {
   selection: Selection;
   /** Where to go back to when Settings closes. */
   lastPane: Selection;
-  settingsPage: SettingsPage;
   sidebarWidth: number;
   sidebarCollapsed: boolean;
   collapsedGroups: string[];
@@ -76,7 +74,7 @@ type State = {
   portsFilter: PortsFilter;
 
   paletteOpen: boolean;
-  /** Search text handed to a pane, by the palette or ⌘F. */
+  /** The visible pane's search text; the palette can hand one over. Cleared when the pane changes. */
   hostsQuery: string;
   envQuery: string;
   /** Grows on every ⌘F, so the visible pane focuses its search field. */
@@ -88,8 +86,7 @@ type State = {
   select: (selection: Selection) => void;
   /** Asks for a project folder, adds it as a repo and opens it. */
   addRepo: () => Promise<void>;
-  openSettings: (page?: SettingsPage) => void;
-  setSettingsPage: (page: SettingsPage) => void;
+  openSettings: () => void;
   closeSettings: () => void;
   setSidebarWidth: (width: number) => void;
   toggleSidebar: () => void;
@@ -106,6 +103,38 @@ type State = {
 };
 
 let noticeSeq = 0;
+/** Both windows share one store per webview; it starts listening once. */
+let started: Promise<void> | undefined;
+
+async function start(set: (partial: Partial<State> | ((s: State) => Partial<State>)) => void, get: () => State) {
+  // Listen first, so no change between the reads and the listeners is lost.
+  await Promise.all([
+    onHostsChanged((hosts) => set({ hosts })),
+    onEnvChanged((env) => set({ env })),
+    onPortsChanged((ports) => set({ ports })),
+    onSettingsChanged((settings) => set({ settings })),
+  ]);
+  const [hosts, env, ports, settings] = await Promise.all([
+    hostsSnapshot(),
+    envSnapshot(),
+    portsSnapshot(),
+    settingsGet(),
+  ]);
+  // An event that arrived while the reads were out is newer than they are.
+  set((s) => ({
+    hosts: s.hosts ?? hosts,
+    env: s.env ?? env,
+    ports: s.ports ?? ports,
+    settings: s.settings ?? settings,
+  }));
+  toolsDetect()
+    .then((tools) => set({ tools }))
+    .catch(() => {});
+  if (getCurrentWindow().label !== "main") return;
+  get().select(get().selection);
+  // Another editor may have saved a dotenv file while Hosven was in the background.
+  window.addEventListener("focus", () => void envRefreshFromDisk().catch(() => {}));
+}
 
 export const useStore = create<State>()((set, get) => ({
   hosts: null,
@@ -116,12 +145,11 @@ export const useStore = create<State>()((set, get) => ({
 
   selection: parseSelection(readPref(PREFS.selection)),
   lastPane: { kind: "systemHosts" },
-  settingsPage: "general",
   sidebarWidth: clampWidth(Number(readPref(PREFS.sidebarWidth)) || SIDEBAR.initial),
   sidebarCollapsed: readPref(PREFS.sidebarCollapsed) === "true",
   collapsedGroups: (readPref(PREFS.collapsedGroups) ?? "").split(",").filter(Boolean),
   envViewMode: readPref(PREFS.envViewMode) === "raw" ? "raw" : "table",
-  portsFilter: (["all", "repos", "system"] as const).find((f) => f === readPref(PREFS.portsFilter)) ?? "all",
+  portsFilter: (["user", "repos", "system"] as const).find((f) => f === readPref(PREFS.portsFilter)) ?? "user",
 
   paletteOpen: false,
   hostsQuery: "",
@@ -129,34 +157,15 @@ export const useStore = create<State>()((set, get) => ({
   findRequest: 0,
   notice: null,
 
-  init: async () => {
-    // Listen first, so no change between the reads and the listeners is lost.
-    await Promise.all([
-      onHostsChanged((hosts) => set({ hosts })),
-      onEnvChanged((env) => set({ env })),
-      onPortsChanged((ports) => set({ ports })),
-      onSettingsChanged((settings) => set({ settings })),
-    ]);
-    const [hosts, env, ports, settings] = await Promise.all([
-      hostsSnapshot(),
-      envSnapshot(),
-      portsSnapshot(),
-      settingsGet(),
-    ]);
-    set({ hosts, env, ports, settings });
-    get().select(get().selection);
-    toolsDetect()
-      .then((tools) => set({ tools }))
-      .catch(() => {});
-    // Another editor may have saved a dotenv file while Hosven was in the background.
-    window.addEventListener("focus", () => void envRefreshFromDisk().catch(() => {}));
-  },
+  init: () => (started ??= start(set, get)),
 
   select: (selection) => {
     if (selection.kind === "settings") {
       get().openSettings();
       return;
     }
+    // A search belongs to the pane it was typed in.
+    if (!sameSelection(selection, get().selection)) set({ hostsQuery: "", envQuery: "" });
     set({ selection, lastPane: selection });
     writePref(PREFS.selection, formatSelection(selection));
     if (selection.kind === "repo") void get().run(envSelect(selection.id, null));
@@ -176,13 +185,10 @@ export const useStore = create<State>()((set, get) => ({
     if (added) get().select({ kind: "repo", id: added.id });
   },
 
-  openSettings: (page) => {
-    const { selection, settingsPage } = get();
-    set({ settingsPage: page ?? settingsPage });
+  openSettings: () => {
+    const { selection } = get();
     if (selection.kind !== "settings") set({ lastPane: selection, selection: { kind: "settings" } });
   },
-
-  setSettingsPage: (settingsPage) => set({ settingsPage }),
 
   closeSettings: () => {
     const { selection, lastPane } = get();
@@ -243,25 +249,4 @@ export const useStore = create<State>()((set, get) => ({
 
 function clampWidth(width: number) {
   return Math.min(SIDEBAR.max, Math.max(SIDEBAR.min, width));
-}
-
-/** The repos ports are attributed to: every repo Hosven knows. */
-export function knownRepos(env: EnvSnapshot | null): KnownRepo[] {
-  return env?.repos.map((r) => ({ name: r.name, path: r.path })) ?? [];
-}
-
-/** Environment and block profiles, with how many entries each block holds. */
-export function profileStats(hosts: HostsSnapshot | null) {
-  const entries = hosts?.entries ?? [];
-  return (hosts?.profiles ?? []).map((profile) => {
-    const own = entries.filter((e) => e.tag === profile.name);
-    return {
-      profile,
-      entryCount: own.length,
-      enabledCount: own.filter((e) => e.enabled).length,
-      active:
-        (hosts?.active.kind === "active" && hosts.active.id === profile.id) ||
-        (hosts?.active.kind === "conflict" && hosts.active.ids.includes(profile.id)),
-    };
-  });
 }

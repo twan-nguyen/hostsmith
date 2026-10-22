@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { Check, HostEntry, HostsSnapshot, Profile, Toast } from "./hosven";
+import type { Check, HostEntry, HostsSnapshot, Profile } from "./hosven";
 import {
   activationSummary,
   blockChoices,
@@ -10,6 +10,7 @@ import {
   hostsBanner,
   parseAliases,
   profileBanner,
+  profileStats,
   profileSubtitle,
   verificationSummary,
 } from "./hosts-view";
@@ -35,7 +36,6 @@ function snapshot(patch: Partial<HostsSnapshot> = {}): HostsSnapshot {
   };
 }
 
-const toast: Toast = { id: 1, message: "Đã thêm api.test", kind: "success" };
 const ok: Check = { hostname: "api.test", expectedIp: "127.0.0.1", resolvedIps: ["127.0.0.1"], matches: true };
 const miss = (hostname: string, resolvedIps: string[] = []): Check => ({
   hostname,
@@ -48,10 +48,6 @@ const env: Profile = { id: "e1", name: "Staging", color: "amber", shortcutNumber
 const block: Profile = { id: "b1", name: "Docker", color: "purple", shortcutNumber: 3, isExclusive: false };
 
 describe("hostsBanner", () => {
-  it("puts a fresh toast first", () => {
-    expect(hostsBanner(snapshot({ active: { kind: "conflict", ids: ["a", "b"] } }), toast)).toBe("toast");
-  });
-
   it("ranks conflict over a load error over an outside change over verification", () => {
     const all = snapshot({
       active: { kind: "conflict", ids: ["a", "b"] },
@@ -59,37 +55,39 @@ describe("hostsBanner", () => {
       externalChange: true,
       verification: { results: [ok] },
     });
-    expect(hostsBanner(all, null)).toBe("conflict");
-    expect(hostsBanner({ ...all, active: { kind: "none" } }, null)).toBe("loadError");
-    expect(hostsBanner({ ...all, active: { kind: "none" }, loadError: null }, null)).toBe("externalChange");
-    expect(hostsBanner({ ...all, active: { kind: "none" }, loadError: null, externalChange: false }, null)).toBe(
+    expect(hostsBanner(all)).toBe("conflict");
+    expect(hostsBanner({ ...all, active: { kind: "none" } })).toBe("loadError");
+    expect(hostsBanner({ ...all, active: { kind: "none" }, loadError: null })).toBe("externalChange");
+    expect(hostsBanner({ ...all, active: { kind: "none" }, loadError: null, externalChange: false })).toBe(
       "verification",
     );
   });
 
   it("hides a clean verification once new edits are pending, but keeps a mismatch", () => {
-    expect(hostsBanner(snapshot({ dirty: true, verification: { results: [ok] } }), null)).toBeNull();
-    expect(hostsBanner(snapshot({ dirty: true, verification: { results: [ok, miss("b.test")] } }), null)).toBe(
+    expect(hostsBanner(snapshot({ dirty: true, verification: { results: [ok] } }))).toBeNull();
+    expect(hostsBanner(snapshot({ dirty: true, verification: { results: [ok, miss("b.test")] } }))).toBe(
       "verification",
     );
   });
 
   it("shows nothing without a snapshot or a reason", () => {
-    expect(hostsBanner(null, null)).toBeNull();
-    expect(hostsBanner(snapshot(), null)).toBeNull();
+    expect(hostsBanner(null)).toBeNull();
+    expect(hostsBanner(snapshot())).toBeNull();
   });
 });
 
 describe("profileBanner", () => {
-  const base = { hosts: snapshot(), toast: null, profile: env, entryCount: 2, active: false };
+  const base = { hosts: snapshot(), profile: env, entryCount: 2, active: false };
 
-  it("follows toast, conflict, unsaved, active, activation", () => {
+  it("puts a conflict before the activation summary", () => {
     const conflict = snapshot({ active: { kind: "conflict", ids: ["e1", "e2"] }, dirty: true });
-    expect(profileBanner({ ...base, hosts: conflict, toast })).toBe("toast");
     expect(profileBanner({ ...base, hosts: conflict })).toBe("conflict");
-    expect(profileBanner({ ...base, hosts: snapshot({ dirty: true }), active: true })).toBe("unsaved");
-    expect(profileBanner({ ...base, active: true })).toBe("active");
     expect(profileBanner(base)).toBe("activation");
+  });
+
+  it("leaves pending edits and the on state to the header", () => {
+    expect(profileBanner({ ...base, hosts: snapshot({ dirty: true }) })).toBeNull();
+    expect(profileBanner({ ...base, active: true })).toBeNull();
   });
 
   it("leaves the conflict to environments and the activation summary too", () => {
@@ -100,6 +98,32 @@ describe("profileBanner", () => {
 
   it("offers no activation summary for an empty environment", () => {
     expect(profileBanner({ ...base, entryCount: 0 })).toBeNull();
+  });
+});
+
+describe("profileStats", () => {
+  const entry = (tag: string, enabled: boolean): HostEntry => ({
+    id: `${tag}-${enabled}`,
+    ip: "127.0.0.1",
+    hostname: `${tag}.test`,
+    aliases: [],
+    comment: "",
+    enabled,
+    tag,
+  });
+
+  it("counts each profile's entries and marks every environment that is on", () => {
+    const hosts = snapshot({
+      profiles: [env, block, { ...env, id: "e2", name: "Local" }],
+      entries: [entry("Staging", true), entry("Docker", true), entry("Docker", false)],
+      active: { kind: "conflict", ids: ["e1", "e2"] },
+    });
+    expect(profileStats(hosts).map((s) => [s.profile.name, s.entryCount, s.enabledCount, s.active])).toEqual([
+      ["Staging", 1, 1, true],
+      ["Docker", 2, 1, false],
+      ["Local", 0, 0, true],
+    ]);
+    expect(profileStats(null)).toEqual([]);
   });
 });
 

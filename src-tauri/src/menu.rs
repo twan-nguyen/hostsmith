@@ -13,6 +13,7 @@ use tauri_plugin_opener::OpenerExt;
 use uuid::Uuid;
 
 use crate::hosts::{self, Hosts, SwitchPolicy};
+use crate::util::lock;
 
 const HOMEPAGE: &str = "https://github.com/twan-nguyen/hosven";
 const RELEASES: &str = "https://github.com/twan-nguyen/hosven/releases";
@@ -37,10 +38,9 @@ struct Shape {
 
 impl Shape {
     fn of(hosts: &Hosts) -> Self {
-        let snapshot = hosts.snapshot();
         Self {
-            environments: snapshot
-                .profiles
+            environments: hosts
+                .profiles()
                 .iter()
                 .filter(|p| p.is_exclusive)
                 .map(|p| ProfileItem {
@@ -50,7 +50,7 @@ impl Shape {
                     has_entries: hosts.tag_entry_count(&p.name) > 0,
                 })
                 .collect(),
-            any_active: !matches!(snapshot.active, hosts::ActiveState::None),
+            any_active: !matches!(hosts.active_state(), hosts::ActiveState::None),
         }
     }
 }
@@ -60,16 +60,16 @@ pub struct MenuState(Mutex<Option<Shape>>);
 
 /// Rebuilds the menu when the environments it lists have changed.
 ///
-/// Called with the hosts model locked, so the menu is built later on the main
-/// thread rather than waited for here: a command running on the main thread
-/// may be waiting for that same lock.
+/// Called with the hosts model locked. From another thread the build is
+/// posted to the main thread rather than waited for, since a command running
+/// there may be waiting for that same lock; on the main thread it runs inline.
 pub fn sync(app: &AppHandle, hosts: &Hosts) {
     let Some(state) = app.try_state::<MenuState>() else {
         return;
     };
     let shape = Shape::of(hosts);
     {
-        let mut last = state.0.lock().unwrap_or_else(|p| p.into_inner());
+        let mut last = lock(&state.0);
         if last.as_ref() == Some(&shape) {
             return;
         }
@@ -81,7 +81,7 @@ pub fn sync(app: &AppHandle, hosts: &Hosts) {
             eprintln!("hosven: could not build the menu: {error}");
             // Lets the next change try again.
             if let Some(state) = handle.try_state::<MenuState>() {
-                *state.0.lock().unwrap_or_else(|p| p.into_inner()) = None;
+                *lock(&state.0) = None;
             }
         }
     });

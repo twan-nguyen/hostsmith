@@ -11,11 +11,12 @@ import {
   CommandList,
   CommandShortcut,
 } from "@/components/ui/command";
+import { profileStats } from "@/lib/hosts-view";
 import { hostsSwitchEnvironment } from "@/lib/hosven";
 import { type PaletteAction, type PaletteCommand, type PaletteIcon, paletteSections } from "@/lib/palette";
 import { PROFILE_COLORS } from "@/lib/profile-color";
 import { cn } from "@/lib/utils";
-import { profileStats, useStore } from "@/store";
+import { useStore } from "@/store";
 
 const ICONS: Record<PaletteIcon, React.ReactNode> = {
   network: <Network />,
@@ -27,7 +28,10 @@ const ICONS: Record<PaletteIcon, React.ReactNode> = {
 };
 
 export function CommandPalette() {
-  const { paletteOpen, setPaletteOpen, hosts, env } = useStore();
+  const paletteOpen = useStore((s) => s.paletteOpen);
+  const setPaletteOpen = useStore((s) => s.setPaletteOpen);
+  const hosts = useStore((s) => s.hosts);
+  const env = useStore((s) => s.env);
   const [query, setQuery] = useState("");
 
   useEffect(() => {

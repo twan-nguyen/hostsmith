@@ -6,8 +6,8 @@ import { Notice } from "@/components/notice";
 import { PaneRouter } from "@/components/pane-router";
 import { PendingSwitchDialog } from "@/components/pending-switch-dialog";
 import { Sidebar } from "@/components/sidebar";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { hostsRedo, hostsUndo } from "@/lib/hosven";
+import { hostsRedo, hostsUndo, windowReady } from "@/lib/hosven";
+import { overlayOpen } from "@/lib/overlay";
 import { parseSelection } from "@/lib/selection";
 import { useStore } from "@/store";
 
@@ -40,8 +40,7 @@ function onMenu(id: string) {
       state.toggleSidebar();
       break;
     case "settings":
-      if (state.selection.kind === "settings") state.closeSettings();
-      else state.openSettings();
+      state.openSettings();
       break;
   }
 }
@@ -52,11 +51,12 @@ function App() {
   const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
 
   useEffect(() => {
-    void init();
     const unlisten = [
       listen<string>("menu", (e) => onMenu(e.payload)),
       listen<string>("navigate", (e) => useStore.getState().select(parseSelection(e.payload))),
     ];
+    // Links that opened the app wait until the panes can take them.
+    void Promise.allSettled([init(), ...unlisten]).then(() => windowReady().catch(() => {}));
     return () => unlisten.forEach((u) => void u.then((f) => f()));
   }, [init]);
 
@@ -78,25 +78,18 @@ function App() {
     root.style.setProperty("--canvas-opacity", `${100 - transparency}%`);
   }, [transparency]);
 
-  // Esc leaves Settings, unless an editor or a dialog wants it.
+  // Esc leaves Settings, unless a dialog or a menu wants it.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      const { selection, paletteOpen, closeSettings } = useStore.getState();
-      if (
-        event.key === "Escape" &&
-        selection.kind === "settings" &&
-        !paletteOpen &&
-        !(event.target instanceof Element && event.target.closest(".cm-editor, [role=dialog], [role=alertdialog]"))
-      ) {
-        closeSettings();
-      }
+      const { selection, closeSettings } = useStore.getState();
+      if (event.key === "Escape" && selection.kind === "settings" && !overlayOpen(event.target)) closeSettings();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
   return (
-    <TooltipProvider>
+    <>
       {/* The gutter around the panel doubles as a window drag handle. */}
       <div data-tauri-drag-region className="app-canvas flex h-screen py-2 pr-2">
         <Sidebar />
@@ -109,7 +102,7 @@ function App() {
       <CommandPalette />
       <PendingSwitchDialog />
       <Notice />
-    </TooltipProvider>
+    </>
   );
 }
 

@@ -4,26 +4,12 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::platform::{HOSTS_PATH, HostsWriter, RunOutcome, SharedRunner, WriteOutcome};
+use crate::platform::{HOSTS_PATH, PrivilegedRunner, RunOutcome};
 
-pub struct SystemHostsWriter {
-    runner: SharedRunner,
-}
-
-impl SystemHostsWriter {
-    pub fn new(runner: SharedRunner) -> Self {
-        Self { runner }
-    }
-}
-
-impl HostsWriter for SystemHostsWriter {
-    fn write(&self, content: &str) -> WriteOutcome {
-        let bytes = content.as_bytes();
-        write_outcome(
-            self.runner
-                .run_with_input(&write_script(bytes.len()), bytes),
-        )
-    }
+/// Replaces the hosts file with `content` and flushes the resolver caches.
+pub fn write(runner: &dyn PrivilegedRunner, content: &str) -> RunOutcome {
+    let bytes = content.as_bytes();
+    runner.run_with_input(&write_script(bytes.len()), bytes)
 }
 
 /// The content goes to a root-owned file beside the hosts file first, and
@@ -50,17 +36,6 @@ fn quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', r"'\''"))
 }
 
-fn write_outcome(outcome: RunOutcome) -> WriteOutcome {
-    match outcome {
-        RunOutcome::Ok => WriteOutcome::Written,
-        RunOutcome::Cancelled => WriteOutcome::Cancelled,
-        RunOutcome::Failed { exit, stderr } if stderr.trim().is_empty() => {
-            WriteOutcome::Failed(format!("lệnh ghi thoát với mã {exit}"))
-        }
-        other => WriteOutcome::Failed(other.failure().unwrap_or_default()),
-    }
-}
-
 /// Where a backup of the hosts file taken at `now` goes, e.g.
 /// `/etc/hosts.backup.2026-10-21T06-05-00.123Z`. Colons are replaced because
 /// Finder shows them as slashes; the milliseconds keep two backups in the
@@ -78,15 +53,13 @@ pub fn backup_script(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
+    use std::sync::Mutex;
 
     use super::*;
-    use crate::platform::PrivilegedRunner;
 
-    /// Records scripts and their input, and answers with a fixed outcome
-    /// instead of running anything.
+    /// Records scripts and their input instead of running anything.
+    #[derive(Default)]
     struct Recorder {
-        outcome: RunOutcome,
         runs: Mutex<Vec<(String, Vec<u8>)>>,
     }
 
@@ -96,16 +69,8 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push((script.to_string(), input.to_vec()));
-            self.outcome.clone()
+            RunOutcome::Ok
         }
-    }
-
-    fn writer(outcome: RunOutcome) -> (SystemHostsWriter, Arc<Recorder>) {
-        let recorder = Arc::new(Recorder {
-            outcome,
-            runs: Mutex::new(Vec::new()),
-        });
-        (SystemHostsWriter::new(recorder.clone()), recorder)
     }
 
     /// Every command a root script runs is named by its absolute path, so the
@@ -158,39 +123,12 @@ mod tests {
 
     #[test]
     fn sends_the_content_on_standard_input() {
-        let (writer, recorder) = writer(RunOutcome::Ok);
-        assert_eq!(writer.write("127.0.0.1\tapi.test\n"), WriteOutcome::Written);
+        let recorder = Recorder::default();
+        assert_eq!(write(&recorder, "127.0.0.1\tapi.test\n"), RunOutcome::Ok);
         let runs = recorder.runs.lock().unwrap();
         assert_eq!(runs.len(), 1);
         assert_eq!(runs[0].0, write_script(19));
         assert_eq!(runs[0].1, b"127.0.0.1\tapi.test\n");
-    }
-
-    #[test]
-    fn maps_run_outcomes_to_write_outcomes() {
-        assert_eq!(write_outcome(RunOutcome::Ok), WriteOutcome::Written);
-        assert_eq!(
-            write_outcome(RunOutcome::Cancelled),
-            WriteOutcome::Cancelled
-        );
-        assert_eq!(
-            write_outcome(RunOutcome::Denied(-60005)),
-            WriteOutcome::Failed("quyền quản trị bị từ chối (mã -60005)".into())
-        );
-        assert_eq!(
-            write_outcome(RunOutcome::Failed {
-                exit: 1,
-                stderr: "sh: /etc/hosts: Operation not permitted\n".into(),
-            }),
-            WriteOutcome::Failed("sh: /etc/hosts: Operation not permitted".into())
-        );
-        assert_eq!(
-            write_outcome(RunOutcome::Failed {
-                exit: 2,
-                stderr: String::new(),
-            }),
-            WriteOutcome::Failed("lệnh ghi thoát với mã 2".into())
-        );
     }
 
     #[test]

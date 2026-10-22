@@ -19,15 +19,13 @@ use crate::env::{self, EnvState};
 use crate::hosts::{self, Hosts, HostsState, Outcome, Step, SwitchPolicy};
 use crate::profiles::Profile;
 use crate::toast::ToastKind;
+use crate::util::lock;
 
 const SCHEME: &str = "hosven";
 
 /// How long the window gets to show a pane before a toast for it arrives: a
 /// pane that mounts with a toast already in its snapshot treats it as seen.
 const SETTLE: Duration = Duration::from_millis(200);
-
-/// How long the window gets after its page loads to mount and listen.
-const STARTUP_SETTLE: Duration = Duration::from_millis(600);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UrlCommand {
@@ -79,7 +77,7 @@ impl UrlCommand {
 }
 
 /// Decodes `%XX` escapes. A segment that does not decode to UTF-8 is kept as
-/// it arrived, as Hosven 1.x did.
+/// it arrived.
 fn percent_decode(segment: &str) -> String {
     let bytes = segment.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
@@ -137,7 +135,7 @@ fn begin_switch(hosts: &mut Hosts, target: Option<Uuid>) -> Step {
 /// Prepares what an activate link does to the model, and the profile pane to
 /// show first.
 fn begin_activate(hosts: &mut Hosts, name: &str) -> (Option<Uuid>, Step) {
-    let (shown, target) = resolve_activate(&hosts.snapshot().profiles, name);
+    let (shown, target) = resolve_activate(hosts.profiles(), name);
     let step = match target {
         Ok(id) => begin_switch(hosts, Some(id)),
         Err(message) => {
@@ -163,7 +161,7 @@ impl Default for UrlQueue {
 /// Takes a link from the system, running it now or once the window is ready.
 pub fn receive(app: &AppHandle, url: String) {
     let state = app.state::<UrlQueue>();
-    let mut queue = state.0.lock().unwrap_or_else(|p| p.into_inner());
+    let mut queue = lock(&state.0);
     match queue.as_mut() {
         Some(waiting) => waiting.push(url),
         None => {
@@ -173,17 +171,16 @@ pub fn receive(app: &AppHandle, url: String) {
     }
 }
 
-/// Called when the main window's page has loaded: runs the links that
-/// launched or reached the app before it could listen.
-pub fn window_loaded(app: &AppHandle) {
-    let app = app.clone();
+/// The main window calls this once it listens for `navigate`: runs the links
+/// that launched or reached the app before then.
+#[tauri::command]
+pub fn window_ready(app: AppHandle) {
+    let waiting = {
+        let state = app.state::<UrlQueue>();
+        let mut queue = lock(&state.0);
+        queue.take().unwrap_or_default()
+    };
     tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(STARTUP_SETTLE).await;
-        let waiting = {
-            let state = app.state::<UrlQueue>();
-            let mut queue = state.0.lock().unwrap_or_else(|p| p.into_inner());
-            queue.take().unwrap_or_default()
-        };
         for url in waiting {
             run(&app, &url).await;
         }
@@ -231,14 +228,7 @@ async fn navigate(app: &AppHandle, selection: &str) {
 }
 
 fn find_repo(app: &AppHandle, name: &str) -> Option<Uuid> {
-    let wanted = name.to_lowercase();
-    app.state::<EnvState>()
-        .lock()
-        .snapshot()
-        .repos
-        .into_iter()
-        .find(|r| r.name.to_lowercase() == wanted)
-        .map(|r| r.id)
+    app.state::<EnvState>().lock().repo_id_by_name(name)
 }
 
 fn hosts_error(app: &AppHandle, message: String) {
@@ -363,13 +353,7 @@ mod tests {
     }
 
     fn id(hosts: &Hosts, name: &str) -> Uuid {
-        hosts
-            .snapshot()
-            .profiles
-            .iter()
-            .find(|p| p.name == name)
-            .unwrap()
-            .id
+        hosts.profiles().iter().find(|p| p.name == name).unwrap().id
     }
 
     fn toast(hosts: &Hosts) -> Option<String> {

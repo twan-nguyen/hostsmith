@@ -1,6 +1,6 @@
 //! Listening TCP ports: who holds each one, and stopping it. Scans shell out
-//! to `lsof` and `docker` like the Swift app did; parsing and attribution are
-//! pure, so they run against fixtures in unit tests. Every change sends the
+//! to `lsof` and `docker`; parsing and attribution are pure, so they run
+//! against fixtures in unit tests. Every change sends the
 //! whole snapshot as `ports-changed`.
 
 use std::collections::HashMap;
@@ -17,16 +17,20 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::platform::{self, ProcessIdentity};
-use crate::toast::{Toast, ToastKind};
+use crate::toast::{Toast, ToastKind, Toasts};
+use crate::util::lock;
 
 const EVENT: &str = "ports-changed";
 const LSOF: &str = "/usr/sbin/lsof";
-/// Where Docker Desktop and Homebrew put the CLI, for when PATH lacks it.
-const DOCKER_FALLBACKS: [&str; 3] = [
-    "/usr/local/bin/docker",
+/// Where Homebrew and Docker Desktop put the CLI. An app opened from Finder
+/// gets launchd's bare PATH, which holds none of them.
+const DOCKER_PATHS: [&str; 3] = [
     "/opt/homebrew/bin/docker",
+    "/usr/local/bin/docker",
     "/Applications/Docker.app/Contents/Resources/bin/docker",
 ];
+/// Where OrbStack and Rancher Desktop put the CLI, under the home folder.
+const DOCKER_HOME_PATHS: [&str; 2] = [".orbstack/bin/docker", ".rd/bin/docker"];
 const SYSTEM_PATH_PREFIXES: [&str; 5] = [
     "/System/",
     "/usr/libexec/",
@@ -129,8 +133,7 @@ pub struct Ports {
     /// each gets a number and an older one never replaces a newer result.
     started: u64,
     applied: u64,
-    toast: Option<Toast>,
-    toast_seq: u64,
+    toasts: Toasts,
 }
 
 impl Ports {
@@ -139,7 +142,7 @@ impl Ports {
             ports: self.ports.clone(),
             scanned_at: self.scanned_at,
             scanning: self.applied < self.started,
-            toast: self.toast.clone(),
+            toast: self.toasts.current().cloned(),
         }
     }
 
@@ -163,12 +166,7 @@ impl Ports {
     }
 
     fn show_toast(&mut self, message: String, kind: ToastKind) {
-        self.toast_seq += 1;
-        self.toast = Some(Toast {
-            id: self.toast_seq,
-            message,
-            kind,
-        });
+        self.toasts.show(message, kind);
     }
 
     /// The first port `pid` holds in the last scan. Only listed processes may
@@ -193,9 +191,7 @@ impl PortsState {
     }
 
     fn lock(&self) -> MutexGuard<'_, Ports> {
-        self.0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        lock(&self.0)
     }
 }
 
@@ -512,20 +508,29 @@ fn scan_system(repos: &[KnownRepo]) -> Result<Vec<ListeningPort>, String> {
 }
 
 fn docker() -> Option<PathBuf> {
-    find_executable(
-        "docker",
-        std::env::var_os("PATH").as_deref(),
-        &DOCKER_FALLBACKS,
-    )
+    let home = crate::config::home_dir();
+    let fallbacks: Vec<PathBuf> = DOCKER_PATHS
+        .iter()
+        .map(PathBuf::from)
+        // Without HOME the names would be relative to the working directory.
+        .chain(
+            DOCKER_HOME_PATHS
+                .iter()
+                .filter(|_| home.is_absolute())
+                .map(|rel| home.join(rel)),
+        )
+        .collect();
+    find_executable("docker", std::env::var_os("PATH").as_deref(), &fallbacks)
 }
 
 /// The first executable `name` on `path`, then the first executable fallback.
-fn find_executable(name: &str, path: Option<&OsStr>, fallbacks: &[&str]) -> Option<PathBuf> {
+/// PATH matters when Hosven runs from a terminal, as in development.
+fn find_executable(name: &str, path: Option<&OsStr>, fallbacks: &[PathBuf]) -> Option<PathBuf> {
     path.into_iter()
         .flat_map(std::env::split_paths)
         .filter(|dir| dir.is_absolute())
         .map(|dir| dir.join(name))
-        .chain(fallbacks.iter().map(PathBuf::from))
+        .chain(fallbacks.iter().cloned())
         .find(|candidate| {
             std::fs::metadata(candidate)
                 .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
@@ -973,16 +978,23 @@ mod tests {
 
         // Not executable yet, so the fallback is used.
         assert_eq!(
-            find_executable("docker", Some(&path), &["/bin/sh"]),
+            find_executable("docker", Some(&path), &[PathBuf::from("/bin/sh")]),
             Some(PathBuf::from("/bin/sh"))
         );
         std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
         assert_eq!(
-            find_executable("docker", Some(&path), &["/bin/sh"]),
+            find_executable("docker", Some(&path), &[PathBuf::from("/bin/sh")]),
             Some(tool)
         );
         assert_eq!(
-            find_executable("docker", None, &["/nonexistent/docker", "/bin/sh"]),
+            find_executable(
+                "docker",
+                None,
+                &[
+                    PathBuf::from("/nonexistent/docker"),
+                    PathBuf::from("/bin/sh")
+                ]
+            ),
             Some(PathBuf::from("/bin/sh"))
         );
         std::fs::remove_dir_all(dir).unwrap();

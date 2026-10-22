@@ -32,6 +32,10 @@ pub struct EnvEntry {
     /// The line as it was, for blank and comment lines.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_line: Option<String>,
+    /// The line a variable was read from, written back as it was while the
+    /// variable is unchanged, so its quoting and spacing survive a write.
+    #[serde(skip)]
+    pub source: Option<String>,
 }
 
 impl EnvEntry {
@@ -45,6 +49,7 @@ impl EnvEntry {
             exported: false,
             is_blank_or_comment: false,
             raw_line: None,
+            source: None,
         }
     }
 
@@ -94,6 +99,14 @@ pub fn parse(content: &str) -> Vec<EnvEntry> {
 }
 
 fn parse_line(line: &str) -> EnvEntry {
+    let mut entry = parse_fields(line);
+    if !entry.is_blank_or_comment {
+        entry.source = Some(line.to_string());
+    }
+    entry
+}
+
+fn parse_fields(line: &str) -> EnvEntry {
     let trimmed = trim_blank(line);
     if trimmed.is_empty() {
         return EnvEntry::raw(line);
@@ -214,6 +227,11 @@ fn format_line(entry: &EnvEntry) -> String {
     if entry.is_blank_or_comment {
         return entry.raw_line.clone().unwrap_or_default();
     }
+    if let Some(source) = &entry.source
+        && parse_fields(source).same_line(entry)
+    {
+        return source.clone();
+    }
     let mut line = String::new();
     if !entry.enabled {
         line.push_str("# ");
@@ -258,6 +276,20 @@ fn format_value(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn untouched_variables_are_written_back_as_they_were_read() {
+        let content =
+            "PASS='a$b c'\nTAIL=\"v\" trailing\nNAME=\"web\"\nexport  SPACED = 1\nOTHER=1\n";
+        let mut entries = parse(content);
+        let other = entries.iter_mut().find(|e| e.key == "OTHER").unwrap();
+        other.value = "2".into();
+        let written = format(&entries);
+        assert_eq!(
+            written,
+            "PASS='a$b c'\nTAIL=\"v\" trailing\nNAME=\"web\"\nexport  SPACED = 1\nOTHER=2\n"
+        );
+    }
 
     /// (line, key, value, comment, enabled, exported)
     type Expect = (

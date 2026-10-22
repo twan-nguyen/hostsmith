@@ -12,14 +12,6 @@ use std::time::Duration;
 use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{DebounceEventResult, Debouncer, new_debouncer};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Change {
-    /// The file exists and was written, replaced or created.
-    Modified,
-    /// The file was deleted or renamed away.
-    Missing,
-}
-
 /// Callers compare the file's content with what they last read or wrote, so
 /// Hosven's own saves need no special handling here.
 pub struct FileWatcher {
@@ -29,11 +21,12 @@ pub struct FileWatcher {
 
 impl FileWatcher {
     /// Calls `on_change` on a background thread once changes to `path` have
-    /// been quiet for `debounce`.
+    /// been quiet for `debounce`. A write, a replacement, a creation and a
+    /// deletion all count.
     pub fn new(
         path: &Path,
         debounce: Duration,
-        on_change: impl Fn(Change) + Send + 'static,
+        on_change: impl Fn() + Send + 'static,
     ) -> Result<Self, String> {
         let name: OsString = path.file_name().ok_or("Đường dẫn không hợp lệ")?.into();
         // FSEvents reports resolved paths, so `/etc` arrives as `/private/etc`.
@@ -42,18 +35,13 @@ impl FileWatcher {
             .ok_or("Đường dẫn không hợp lệ")?
             .canonicalize()
             .map_err(|e| e.to_string())?;
-        let watched = dir.join(&name);
         let mut debouncer = new_debouncer(debounce, move |result: DebounceEventResult| {
             let Ok(events) = result else { return };
             if events
                 .iter()
                 .any(|event| event.path.file_name() == Some(name.as_os_str()))
             {
-                on_change(if watched.exists() {
-                    Change::Modified
-                } else {
-                    Change::Missing
-                });
+                on_change();
             }
         })
         .map_err(|e| e.to_string())?;
@@ -80,14 +68,14 @@ mod tests {
     const WAIT: Duration = Duration::from_secs(3);
     const QUIET: Duration = Duration::from_millis(1200);
 
-    fn setup() -> (PathBuf, FileWatcher, Receiver<Change>) {
+    fn setup() -> (PathBuf, FileWatcher, Receiver<()>) {
         let dir = std::env::temp_dir().join(format!("hosven-watch-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         let file = dir.join(".env");
         fs::write(&file, "A=1\n").unwrap();
         let (tx, rx) = channel();
-        let watcher = FileWatcher::new(&file, DEBOUNCE, move |change| {
-            let _ = tx.send(change);
+        let watcher = FileWatcher::new(&file, DEBOUNCE, move || {
+            let _ = tx.send(());
         })
         .unwrap();
         // FSEvents can still report the file's creation, which happened just
@@ -97,10 +85,11 @@ mod tests {
         (file, watcher, rx)
     }
 
-    fn drain(rx: &Receiver<Change>) -> Vec<Change> {
-        let mut seen = Vec::new();
-        while let Ok(change) = rx.recv_timeout(QUIET) {
-            seen.push(change);
+    /// How many callbacks arrive before the watcher goes quiet.
+    fn drain(rx: &Receiver<()>) -> usize {
+        let mut seen = 0;
+        while rx.recv_timeout(QUIET).is_ok() {
+            seen += 1;
         }
         seen
     }
@@ -109,7 +98,7 @@ mod tests {
     fn detects_a_modification() {
         let (file, _watcher, rx) = setup();
         fs::write(&file, "A=2\n").unwrap();
-        assert_eq!(rx.recv_timeout(WAIT), Ok(Change::Modified));
+        assert_eq!(rx.recv_timeout(WAIT), Ok(()));
     }
 
     #[test]
@@ -119,12 +108,8 @@ mod tests {
             fs::write(&file, format!("A={value}\n")).unwrap();
         }
         let seen = drain(&rx);
-        assert!(!seen.is_empty());
-        assert!(
-            seen.len() <= 2,
-            "ten writes arrived as {} callbacks",
-            seen.len()
-        );
+        assert!(seen > 0);
+        assert!(seen <= 2, "ten writes arrived as {seen} callbacks");
     }
 
     #[test]
@@ -134,22 +119,22 @@ mod tests {
             let tmp = file.with_file_name(".env.swp");
             fs::write(&tmp, format!("A={value}\n")).unwrap();
             fs::rename(&tmp, &file).unwrap();
-            assert_eq!(rx.recv_timeout(WAIT), Ok(Change::Modified), "save {value}");
+            assert_eq!(rx.recv_timeout(WAIT), Ok(()), "save {value}");
             drain(&rx);
         }
     }
 
     #[test]
-    fn reports_a_deleted_file_as_missing() {
+    fn reports_a_deleted_file() {
         let (file, _watcher, rx) = setup();
         fs::remove_file(&file).unwrap();
-        assert_eq!(rx.recv_timeout(WAIT), Ok(Change::Missing));
+        assert_eq!(rx.recv_timeout(WAIT), Ok(()));
     }
 
     #[test]
     fn ignores_other_files_in_the_directory() {
         let (file, _watcher, rx) = setup();
         fs::write(file.with_file_name(".env.example"), "B=1\n").unwrap();
-        assert!(drain(&rx).is_empty());
+        assert_eq!(drain(&rx), 0);
     }
 }

@@ -1,19 +1,10 @@
 import { useEffect, useId, useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Field, FormDialog } from "@/components/form-dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { INVALID_KEY_MESSAGE, isValidEnvKey } from "@/lib/env-table";
 import { type EnvEntry, envAddEntry, envUpdateEntry } from "@/lib/hosven";
-import { errorMessage } from "@/lib/utils";
 
 /**
  * Adds a variable to the selected file, or edits one. Nothing is written
@@ -37,8 +28,6 @@ export function EnvKeyDialog({
   const [value, setValue] = useState("");
   const [comment, setComment] = useState("");
   const [touched, setTouched] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const ids = { key: useId(), value: useId(), comment: useId() };
 
   useEffect(() => {
@@ -47,7 +36,6 @@ export function EnvKeyDialog({
     setValue(entry?.value ?? "");
     setComment(entry?.comment ?? "");
     setTouched(false);
-    setError(null);
   }, [open, entry]);
 
   const trimmedKey = key.trim();
@@ -55,103 +43,65 @@ export function EnvKeyDialog({
   // A value read from a quoted line may span lines; a one-line field would drop them.
   const multiline = value.includes("\n");
 
-  async function submit() {
-    setTouched(true);
-    if (!trimmedKey || keyProblem) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const input = { key: trimmedKey, value, comment: comment.trim() };
-      await (entry ? envUpdateEntry(entry.id, input) : envAddEntry(input));
-      onClose();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(false);
-    }
+  function submit() {
+    const input = { key: trimmedKey, value, comment: comment.trim() };
+    return entry ? envUpdateEntry(entry.id, input) : envAddEntry(input);
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md">
-        <form
-          className="contents"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!busy) void submit();
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>{entry ? "Sửa biến" : "Biến mới"}</DialogTitle>
-            <DialogDescription>
-              {file ? `Không ghi gì vào ${file} cho đến khi bạn nhấn Áp dụng.` : "Không ghi gì cho đến khi bạn nhấn Áp dụng."}
-            </DialogDescription>
-          </DialogHeader>
+    <FormDialog
+      open={open}
+      title={entry ? "Sửa biến" : "Biến mới"}
+      description={
+        file ? `Không ghi gì vào ${file} cho đến khi bạn nhấn Áp dụng.` : "Không ghi gì cho đến khi bạn nhấn Áp dụng."
+      }
+      submitLabel={entry ? "Lưu" : "Thêm biến"}
+      canSubmit={trimmedKey !== "" && keyProblem === null}
+      onSubmit={submit}
+      onClose={onClose}
+      className="sm:max-w-md"
+    >
+      <Field id={ids.key} label="Khoá" error={touched ? keyProblem : null}>
+        <Input
+          id={ids.key}
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+          onBlur={() => setTouched(true)}
+          aria-invalid={touched && keyProblem !== null}
+          placeholder="DATABASE_URL"
+          autoFocus
+          spellCheck={false}
+          autoCapitalize="off"
+          autoCorrect="off"
+          className="font-mono"
+        />
+      </Field>
 
-          <div className="flex flex-col gap-2">
-            <label htmlFor={ids.key} className="text-muted-foreground">
-              Khoá
-            </label>
-            <Input
-              id={ids.key}
-              value={key}
-              onChange={(e) => setKey(e.target.value)}
-              onBlur={() => setTouched(true)}
-              aria-invalid={touched && keyProblem !== null}
-              placeholder="DATABASE_URL"
-              autoFocus
-              spellCheck={false}
-              autoCapitalize="off"
-              autoCorrect="off"
-              className="font-mono"
-            />
-            {touched && keyProblem && <p className="animate-fade-in text-destructive">{keyProblem}</p>}
-          </div>
+      <Field id={ids.value} label="Giá trị">
+        {multiline ? (
+          <Textarea
+            id={ids.value}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            spellCheck={false}
+            className="max-h-48 font-mono"
+          />
+        ) : (
+          <Input
+            id={ids.value}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            className="font-mono"
+          />
+        )}
+      </Field>
 
-          <div className="flex flex-col gap-2">
-            <label htmlFor={ids.value} className="text-muted-foreground">
-              Giá trị
-            </label>
-            {multiline ? (
-              <Textarea
-                id={ids.value}
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                spellCheck={false}
-                className="max-h-48 font-mono"
-              />
-            ) : (
-              <Input
-                id={ids.value}
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                spellCheck={false}
-                autoCapitalize="off"
-                autoCorrect="off"
-                className="font-mono"
-              />
-            )}
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <label htmlFor={ids.comment} className="text-muted-foreground">
-              Ghi chú
-            </label>
-            <Input id={ids.comment} value={comment} onChange={(e) => setComment(e.target.value)} />
-          </div>
-
-          {error && <p className="animate-fade-in text-destructive">{error}</p>}
-
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>
-              Huỷ
-            </Button>
-            <Button type="submit" disabled={!trimmedKey || keyProblem !== null || busy}>
-              {entry ? "Lưu" : "Thêm biến"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+      <Field id={ids.comment} label="Ghi chú">
+        <Input id={ids.comment} value={comment} onChange={(e) => setComment(e.target.value)} />
+      </Field>
+    </FormDialog>
   );
 }

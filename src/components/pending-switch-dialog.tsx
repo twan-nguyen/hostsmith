@@ -18,7 +18,8 @@ import { useStore } from "@/store";
  * write would carry both, so the user decides.
  */
 export function PendingSwitchDialog() {
-  const { hosts, run } = useStore();
+  const hosts = useStore((s) => s.hosts);
+  const run = useStore((s) => s.run);
   const pending = hosts?.pendingSwitch ?? null;
   const target = pending?.target ? hosts?.profiles.find((p) => p.id === pending.target) : null;
   // Closing after "Áp dụng cùng" must not also cancel the switch it started.

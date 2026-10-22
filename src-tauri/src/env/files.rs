@@ -4,6 +4,7 @@
 
 use std::fs;
 use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -96,7 +97,13 @@ pub fn write_content(path: &Path, content: &str) -> Result<(), String> {
         Uuid::new_v4().simple()
     ));
     let permissions = fs::metadata(&target).ok().map(|m| m.permissions());
-    let result = fs::File::create(&tmp)
+    // Private until it takes the original file's permissions, so a secret
+    // is never readable by others, even for a moment.
+    let result = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&tmp)
         .and_then(|mut file| {
             file.write_all(content.as_bytes())?;
             file.sync_all()

@@ -1,8 +1,9 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { RotateCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 
-import { Banner, type BannerTone } from "@/components/banner";
+import { Banner, PaneBanner } from "@/components/banner";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PaneEmpty } from "@/components/pane-empty";
 import { Panel, PanelHeader } from "@/components/panel";
@@ -17,7 +18,6 @@ import {
 } from "@/components/ui/context-menu";
 import {
   type ListeningPort,
-  type ToastKind,
   portsKill,
   portsScan,
   portsStopContainer,
@@ -29,6 +29,7 @@ import {
   type OwnerTone,
   attentionPort,
   filterPorts,
+  knownRepos,
   localhostUrl,
   meaningfulCwd,
   ownerLabel,
@@ -36,14 +37,12 @@ import {
   portDetail,
   portsSubtitle,
 } from "@/lib/ports-view";
+import { overlayOpen } from "@/lib/overlay";
 import { useHomeDir } from "@/lib/use-home-dir";
-import { useToast } from "@/lib/use-toast";
 import { cn } from "@/lib/utils";
-import { knownRepos, useStore } from "@/store";
+import { useStore } from "@/store";
 
 const GRID = { gridTemplateColumns: "72px minmax(0,1fr) 112px auto" };
-
-const TOAST_TONE: Record<ToastKind, BannerTone> = { success: "success", error: "danger", info: "info" };
 
 const DOT: Record<OwnerTone, string> = {
   ok: "bg-success",
@@ -57,22 +56,35 @@ const HIGHLIGHT_MS = 2400;
 /** A stop to confirm: SIGTERM for a process nobody knows, SIGKILL when asked or when SIGTERM was not enough. */
 type PendingStop = { port: ListeningPort; force: boolean; afterTerm: boolean };
 
-/** Re-renders every second, so "N giây trước" counts up. */
-function useNow(intervalMs = 1000) {
+/**
+ * "N đang dùng · quét N giây trước". It ticks every second on its own, so
+ * the rows under it do not render again with it.
+ */
+function PortsSubtitle({ ports, scannedAt }: { ports: ListeningPort[]; scannedAt: number | null }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), intervalMs);
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [intervalMs]);
-  return now;
+  }, []);
+  return (
+    <span className="truncate text-xs text-muted-foreground tabular-nums" data-testid="ports-subtitle">
+      {portsSubtitle(ports, scannedAt, now)}
+    </span>
+  );
 }
 
 /** The TCP ports something listens on, who holds each, and ways to free it. */
 export function PortsPane() {
-  const { ports: snapshot, tools, portsFilter, setPortsFilter, run } = useStore();
+  const { snapshot, tools, portsFilter, setPortsFilter, run } = useStore(
+    useShallow((s) => ({
+      snapshot: s.ports,
+      tools: s.tools,
+      portsFilter: s.portsFilter,
+      setPortsFilter: s.setPortsFilter,
+      run: s.run,
+    })),
+  );
   const home = useHomeDir();
-  const now = useNow();
-  const [toast, dismissToast] = useToast(snapshot?.toast ?? null);
   const [scanning, setScanning] = useState(false);
   const [busy, setBusy] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<PendingStop | null>(null);
@@ -82,7 +94,7 @@ export function PortsPane() {
 
   const ports = snapshot?.ports ?? [];
   const visible = filterPorts(ports, portsFilter);
-  const attention = portsFilter === "all" ? attentionPort(ports) : null;
+  const attention = portsFilter === "user" ? attentionPort(ports) : null;
   const isScanning = scanning || Boolean(snapshot?.scanning);
 
   // Ports belong to whichever repo Hosven knows at the time of the call.
@@ -106,7 +118,7 @@ export function PortsPane() {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "r" || e.shiftKey || e.altKey) return;
       // Always keep ⌘R from reloading the window.
       e.preventDefault();
-      if (document.querySelector("[role=dialog], [role=alertdialog], [role=menu]")) return;
+      if (overlayOpen()) return;
       void scanRef.current();
     };
     window.addEventListener("keydown", onKeyDown);
@@ -159,16 +171,14 @@ export function PortsPane() {
       <PanelHeader>
         <div className="flex min-w-0 flex-1 items-baseline gap-2.5">
           <h1 className="shrink-0 font-medium">Ports</h1>
-          <span className="truncate text-xs text-muted-foreground tabular-nums" data-testid="ports-subtitle">
-            {portsSubtitle(ports, snapshot?.scannedAt ?? null, now)}
-          </span>
+          <PortsSubtitle ports={ports} scannedAt={snapshot?.scannedAt ?? null} />
         </div>
         <SegmentedControl
           label="Lọc cổng"
           value={portsFilter}
           onChange={setPortsFilter}
           options={[
-            { value: "all", label: "Tất cả", testId: "ports-filter-all" },
+            { value: "user", label: "Người dùng", testId: "ports-filter-user" },
             { value: "repos", label: "Repo của bạn", testId: "ports-filter-repos" },
             { value: "system", label: "Hệ thống", testId: "ports-filter-system" },
           ]}
@@ -186,23 +196,17 @@ export function PortsPane() {
         </Button>
       </PanelHeader>
 
-      {toast ? (
-        <div className="shrink-0 px-5 pt-4">
-          <Banner tone={TOAST_TONE[toast.kind]} title={toast.message} onDismiss={dismissToast} />
-        </div>
-      ) : (
-        attention && (
-          <div className="shrink-0 px-5 pt-4">
-            <Banner
-              tone="danger"
-              title={`${attention.process} trên cổng ${attention.port} không thuộc repo nào Hosven biết`}
-              actions={[{ label: "Hiện tiến trình", onClick: () => reveal(attention) }]}
-            >
-              Dừng nó sẽ mở hộp thoại xác nhận nêu tên tiến trình và pid. Hosven gửi SIGTERM trước.
-            </Banner>
-          </div>
-        )
-      )}
+      <PaneBanner toast={snapshot?.toast ?? null}>
+        {attention && (
+          <Banner
+            tone="danger"
+            title={`${attention.process} trên cổng ${attention.port} không thuộc repo nào Hosven biết`}
+            actions={[{ label: "Hiện tiến trình", onClick: () => reveal(attention) }]}
+          >
+            Dừng nó sẽ mở hộp thoại xác nhận nêu tên tiến trình và pid. Hosven gửi SIGTERM trước.
+          </Banner>
+        )}
+      </PaneBanner>
 
       <div className="min-h-0 flex-1 overflow-auto">
         {visible.length === 0 ? (

@@ -1,24 +1,11 @@
-import {
-  ArrowLeft,
-  Box,
-  Cable,
-  ChevronDown,
-  FileText,
-  Folder,
-  FolderX,
-  ListChecks,
-  Network,
-  Plus,
-  Search,
-  Settings,
-  SlidersHorizontal,
-} from "lucide-react";
+import { ArrowLeft, Box, Cable, ChevronDown, FileText, Folder, FolderX, Network, Plus, Search, Settings } from "lucide-react";
 import { useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 
 import appIcon from "../../src-tauri/icons/128x128.png";
-import { ConfirmDialog } from "@/components/confirm-dialog";
 import { NameDialog } from "@/components/name-dialog";
 import { ProfileDialog } from "@/components/profile-dialog";
+import { RemoveProfileDialog, RemoveRepoDialog } from "@/components/remove-dialogs";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -27,13 +14,12 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Kbd } from "@/components/ui/kbd";
+import { profileStats } from "@/lib/hosts-view";
 import {
   type EnvRepo,
   type Profile,
-  envRemoveRepo,
   envRenameRepo,
   hostsSwitchEnvironment,
-  profilesRemove,
   profilesSetExclusive,
   toolsOpenInEditor,
   toolsOpenInTerminal,
@@ -42,10 +28,13 @@ import {
 import { PROFILE_COLORS } from "@/lib/profile-color";
 import { type Selection, sameSelection } from "@/lib/selection";
 import { cn } from "@/lib/utils";
-import { SIDEBAR, type SettingsPage, profileStats, useStore } from "@/store";
+import { SIDEBAR, useStore } from "@/store";
 
 export function Sidebar() {
-  const { selection, sidebarWidth, sidebarCollapsed, setSidebarWidth } = useStore();
+  const inSettings = useStore((s) => s.selection.kind === "settings");
+  const sidebarWidth = useStore((s) => s.sidebarWidth);
+  const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
+  const setSidebarWidth = useStore((s) => s.setSidebarWidth);
   const aside = useRef<HTMLElement>(null);
 
   if (sidebarCollapsed) return null;
@@ -73,8 +62,8 @@ export function Sidebar() {
     >
       {/* Leaves room for the macOS traffic lights and lets the window be dragged. */}
       <div data-tauri-drag-region className="h-10 shrink-0" />
-      <div key={selection.kind === "settings" ? "settings" : "app"} className="flex min-h-0 flex-1 animate-view-in flex-col">
-        {selection.kind === "settings" ? <SettingsNav /> : <AppNav />}
+      <div key={inSettings ? "settings" : "app"} className="flex min-h-0 flex-1 animate-view-in flex-col">
+        {inSettings ? <SettingsNav /> : <AppNav />}
       </div>
       <div
         role="separator"
@@ -90,7 +79,20 @@ export function Sidebar() {
 }
 
 function AppNav() {
-  const { hosts, env, ports, tools, selection, select, setPaletteOpen, openSettings, run } = useStore();
+  const { hosts, env, ports, tools, selection, select, setPaletteOpen, openSettings, addRepo, run } = useStore(
+    useShallow((s) => ({
+      hosts: s.hosts,
+      env: s.env,
+      ports: s.ports,
+      tools: s.tools,
+      selection: s.selection,
+      select: s.select,
+      setPaletteOpen: s.setPaletteOpen,
+      openSettings: s.openSettings,
+      addRepo: s.addRepo,
+      run: s.run,
+    })),
+  );
   const [profileDialog, setProfileDialog] = useState<{ profile: Profile | null } | null>(null);
   const [deleting, setDeleting] = useState<Profile | null>(null);
   const [renaming, setRenaming] = useState<EnvRepo | null>(null);
@@ -108,8 +110,6 @@ function AppNav() {
     select({ kind: "profile", id: profile.id });
     void run(hostsSwitchEnvironment(on ? profile.id : null, "ask"));
   };
-
-  const addRepo = useStore((s) => s.addRepo);
 
   const isSelected = (s: Selection) => sameSelection(selection, s);
 
@@ -233,8 +233,12 @@ function AppNav() {
             const target: Selection = single
               ? { kind: "envFile", repo: repo.id, path: single.relativePath }
               : { kind: "repo", id: repo.id };
+            // A one-file repo is a single row, whichever way it was opened.
             const repoActive =
-              isSelected(target) || (selection.kind === "envFile" && selection.repo === repo.id && !!single);
+              isSelected(target) ||
+              (!!single &&
+                ((selection.kind === "envFile" && selection.repo === repo.id) ||
+                  (selection.kind === "repo" && selection.id === repo.id)));
             return (
               <div key={repo.id} className="flex flex-col gap-px">
                 <ContextMenu>
@@ -324,14 +328,7 @@ function AppNav() {
         onClose={() => setProfileDialog(null)}
         onCreated={(p) => select({ kind: "profile", id: p.id })}
       />
-      <ConfirmDialog
-        open={deleting !== null}
-        title="Xoá profile?"
-        description={`Xoá metadata của profile ${deleting?.name}. Các entry trong /etc/hosts được giữ nguyên.`}
-        confirmLabel="Xoá profile"
-        onConfirm={() => deleting && void run(profilesRemove(deleting.id))}
-        onClose={() => setDeleting(null)}
-      />
+      <RemoveProfileDialog profile={deleting} onClose={() => setDeleting(null)} />
       <NameDialog
         open={renaming !== null}
         title="Đổi tên repo"
@@ -341,54 +338,24 @@ function AppNav() {
         onSubmit={(name) => envRenameRepo(renaming!.id, name)}
         onClose={() => setRenaming(null)}
       />
-      <ConfirmDialog
-        open={removing !== null}
-        title="Xoá repo khỏi danh sách?"
-        description={
-          removing && removing.profiles.length > 0
-            ? `Các file trong ${removing.path} được giữ nguyên. ${removing.profiles.length} profile env đã lưu của repo sẽ bị xoá.`
-            : `Các file trong ${removing?.path} được giữ nguyên.`
-        }
-        confirmLabel="Xoá khỏi danh sách"
-        onConfirm={() => removing && void run(envRemoveRepo(removing.id))}
-        onClose={() => setRemoving(null)}
-      />
+      <RemoveRepoDialog repo={removing} onClose={() => setRemoving(null)} />
     </>
   );
 }
 
-const SETTINGS_PAGES: { page: SettingsPage; label: string; icon: React.ReactNode }[] = [
-  { page: "general", label: "Chung", icon: <SlidersHorizontal /> },
-  { page: "profiles", label: "Profiles", icon: <ListChecks /> },
-];
-
+/** Settings fill the pane; the sidebar only leads back. */
 function SettingsNav() {
-  const { closeSettings, settingsPage, setSettingsPage } = useStore();
+  const closeSettings = useStore((s) => s.closeSettings);
   return (
-    <>
-      <div className="px-3 pb-3">
-        <button
-          onClick={closeSettings}
-          className="flex h-7 items-center gap-2 rounded-md px-2 text-muted-foreground transition-colors duration-100 hover:bg-sidebar-accent hover:text-sidebar-foreground [&_svg]:size-4"
-        >
-          <ArrowLeft />
-          Quay lại
-        </button>
-      </div>
-      <nav className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-3 pb-3">
-        <Section id="settings" title="Cài đặt">
-          {SETTINGS_PAGES.map(({ page, label, icon }) => (
-            <NavItem
-              key={page}
-              icon={icon}
-              label={label}
-              active={settingsPage === page}
-              onClick={() => setSettingsPage(page)}
-            />
-          ))}
-        </Section>
-      </nav>
-    </>
+    <div className="px-3 pb-3">
+      <button
+        onClick={closeSettings}
+        className="flex h-7 items-center gap-2 rounded-md px-2 text-muted-foreground transition-colors duration-100 hover:bg-sidebar-accent hover:text-sidebar-foreground [&_svg]:size-4"
+      >
+        <ArrowLeft />
+        Quay lại
+      </button>
+    </div>
   );
 }
 
@@ -403,8 +370,8 @@ function Section({
   action?: { label: string; onClick: () => void };
   children: React.ReactNode;
 }) {
-  const { collapsedGroups, toggleGroup } = useStore();
-  const open = !collapsedGroups.includes(id);
+  const open = useStore((s) => !s.collapsedGroups.includes(id));
+  const toggleGroup = useStore((s) => s.toggleGroup);
   return (
     <div className="group/section flex flex-col gap-px">
       <div className="flex items-center justify-between">

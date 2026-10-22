@@ -5,6 +5,7 @@
 
 use std::fs;
 use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -58,7 +59,9 @@ pub fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), Str
 
 /// Each call gets its own temporary name, created fresh, so two saves of the
 /// same file at once never write into one temporary file, and a name planted
-/// in the directory beforehand is never followed or reused.
+/// in the directory beforehand is never followed or reused. The file is
+/// readable by its owner only: `env.json` holds dotenv contents, secrets
+/// included.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let dir = path.parent().ok_or("Đường dẫn không hợp lệ")?;
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
@@ -71,6 +74,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let result = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
+        .mode(0o600)
         .open(&tmp)
         .and_then(|mut file| {
             file.write_all(bytes)?;
@@ -129,6 +133,17 @@ mod tests {
         assert_eq!(text.len(), 64 * 1024);
         assert!(text.chars().all(|c| text.starts_with(c)));
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn saved_files_are_private_to_their_owner() {
+        let dir = temp_dir();
+        let path = dir.join("env.json");
+        write_json_atomic(&path, &json!({ "secret": "x" })).unwrap();
+        let mode =
+            std::os::unix::fs::PermissionsExt::mode(&fs::metadata(&path).unwrap().permissions());
+        assert_eq!(mode & 0o777, 0o600);
         fs::remove_dir_all(dir).unwrap();
     }
 

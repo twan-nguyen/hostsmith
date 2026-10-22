@@ -1,12 +1,31 @@
-import type { Check, HostEntry, HostsSnapshot, Profile, SwitchPreview, Toast } from "@/lib/hosven";
+import type { Check, HostEntry, HostsSnapshot, Profile, SwitchPreview } from "@/lib/hosven";
+
+// MARK: - Profiles
+
+/** Environment and block profiles, with how many entries each holds and has on. */
+export function profileStats(hosts: HostsSnapshot | null) {
+  const entries = hosts?.entries ?? [];
+  return (hosts?.profiles ?? []).map((profile) => {
+    const own = entries.filter((e) => e.tag === profile.name);
+    return {
+      profile,
+      entryCount: own.length,
+      enabledCount: own.filter((e) => e.enabled).length,
+      active:
+        (hosts?.active.kind === "active" && hosts.active.id === profile.id) ||
+        (hosts?.active.kind === "conflict" && hosts.active.ids.includes(profile.id)),
+    };
+  });
+}
 
 // MARK: - Banner slot
 
-/** What the hosts pane's single banner slot shows, most urgent first. */
-export type HostsBanner = "toast" | "conflict" | "loadError" | "externalChange" | "verification";
+// A fresh toast takes the slot before any of these; the pane banner sees to that.
 
-export function hostsBanner(hosts: HostsSnapshot | null, toast: Toast | null): HostsBanner | null {
-  if (toast) return "toast";
+/** What the hosts pane's banner slot shows, most urgent first. */
+export type HostsBanner = "conflict" | "loadError" | "externalChange" | "verification";
+
+export function hostsBanner(hosts: HostsSnapshot | null): HostsBanner | null {
   if (!hosts) return null;
   if (hosts.active.kind === "conflict") return "conflict";
   if (hosts.loadError) return "loadError";
@@ -19,35 +38,34 @@ export function hostsBanner(hosts: HostsSnapshot | null, toast: Toast | null): H
   return null;
 }
 
-/** What the profile pane's single banner slot shows, most urgent first. */
-export type ProfileBanner = "toast" | "conflict" | "unsaved" | "active" | "activation";
+/**
+ * What the profile pane's banner slot shows. Pending edits and the on state
+ * already show in the header, so only a conflict and what activating would
+ * do take the slot.
+ */
+export type ProfileBanner = "conflict" | "activation";
 
 export function profileBanner({
   hosts,
-  toast,
   profile,
   entryCount,
   active,
 }: {
   hosts: HostsSnapshot | null;
-  toast: Toast | null;
   profile: Profile;
   entryCount: number;
   active: boolean;
 }): ProfileBanner | null {
-  if (toast) return "toast";
-  if (!hosts) return null;
-  if (profile.isExclusive && hosts.active.kind === "conflict") return "conflict";
-  if (hosts.dirty) return "unsaved";
-  if (active) return "active";
-  if (profile.isExclusive && entryCount > 0) return "activation";
+  if (!hosts || !profile.isExclusive) return null;
+  if (hosts.active.kind === "conflict") return "conflict";
+  if (!hosts.dirty && !active && entryCount > 0) return "activation";
   return null;
 }
 
 // MARK: - Banner text
 
 /** How many shown before the rest collapse into "…". */
-export const MISMATCH_LINES = 4;
+const MISMATCH_LINES = 4;
 
 export type VerificationSummary = { tone: "success" | "warning"; title: string; lines: string[] };
 

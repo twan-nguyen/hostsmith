@@ -17,3 +17,30 @@ pub struct Toast {
     pub message: String,
     pub kind: ToastKind,
 }
+
+/// The latest toast of one model, numbered in the order they were shown.
+#[derive(Debug, Default)]
+pub struct Toasts {
+    current: Option<Toast>,
+    seq: u64,
+}
+
+impl Toasts {
+    pub fn show(&mut self, message: String, kind: ToastKind) {
+        self.seq += 1;
+        self.current = Some(Toast {
+            id: self.seq,
+            message,
+            kind,
+        });
+    }
+
+    pub fn current(&self) -> Option<&Toast> {
+        self.current.as_ref()
+    }
+
+    #[cfg(test)]
+    pub fn clear(&mut self) {
+        self.current = None;
+    }
+}

@@ -28,3 +28,16 @@ export function PanelHeader({ className, ...props }: React.ComponentProps<"heade
     />
   );
 }
+
+/** "N chưa áp dụng": edits the model holds that are not written yet. */
+export function PendingPill({ count, testId }: { count: number; testId?: string }) {
+  return (
+    <span
+      data-testid={testId}
+      className="flex h-6 shrink-0 animate-fade-in items-center gap-1.5 rounded-md bg-warning/10 px-2 text-xs text-warning tabular-nums"
+    >
+      <span className="size-1.5 rounded-full bg-warning" />
+      {count} chưa áp dụng
+    </span>
+  );
+}

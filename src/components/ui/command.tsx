@@ -34,8 +34,8 @@ function Command({
 }
 
 function CommandDialog({
-  title = "Command Palette",
-  description = "Search for a command to run...",
+  title = "Bảng lệnh",
+  description = "Tìm một lệnh để chạy",
   children,
   className,
   showCloseButton = false,

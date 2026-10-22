@@ -8,6 +8,7 @@ use std::process::{Command, Stdio};
 use serde::Serialize;
 
 use crate::config;
+use crate::util::blocking;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,9 +48,13 @@ fn validate(repo: &str, relative: &str) -> Result<PathBuf, String> {
 /// name as a command.
 const NO_FSMONITOR: [&str; 2] = ["-c", "core.fsmonitor="];
 
+/// Named by its absolute path: an app opened from Finder gets launchd's bare
+/// PATH, and the git it finds there should not depend on how Hosven started.
+const GIT: &str = "/usr/bin/git";
+
 /// git's exit status, or `None` when git could not run.
 fn git(repo: &Path, args: &[&str]) -> Option<i32> {
-    Command::new("git")
+    Command::new(GIT)
         .args(NO_FSMONITOR)
         .args(args)
         .current_dir(repo)
@@ -139,14 +144,6 @@ fn add_to_gitignore(repo: &Path, relative: &str) -> Result<Exposure, String> {
     Ok(check(repo, relative))
 }
 
-async fn blocking<T: Send + 'static>(
-    work: impl FnOnce() -> Result<T, String> + Send + 'static,
-) -> Result<T, String> {
-    tauri::async_runtime::spawn_blocking(work)
-        .await
-        .map_err(|e| e.to_string())?
-}
-
 #[tauri::command]
 pub async fn git_exposure(repo_path: String, relative_path: String) -> Result<Exposure, String> {
     blocking(move || {
@@ -193,7 +190,7 @@ mod tests {
     }
 
     fn git_available() -> bool {
-        Command::new("git")
+        Command::new(GIT)
             .arg("--version")
             .output()
             .is_ok_and(|out| out.status.success())

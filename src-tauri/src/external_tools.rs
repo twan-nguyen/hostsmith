@@ -1,7 +1,7 @@
 //! Hands a folder or file to the tools a developer already has installed.
 //! Detection is by bundle id, first installed wins, so labels can name the
 //! app. It runs once per launch: installing an app while Hosven runs shows up
-//! after a restart, as in the Swift app.
+//! after a restart.
 
 use std::collections::HashSet;
 use std::ffi::OsStr;
@@ -12,6 +12,7 @@ use std::sync::OnceLock;
 use serde::Serialize;
 
 use crate::config;
+use crate::util::blocking;
 
 const TERMINALS: [(&str, &str); 4] = [
     ("iTerm", "com.googlecode.iterm2"),
@@ -180,14 +181,6 @@ fn open_with(app: Option<&App>, missing: &str, path: &str, target: Target) -> Re
         path.as_os_str(),
     ])
     .map_err(|e| format!("Không mở được {} bằng {}: {e}", path.display(), app.name))
-}
-
-async fn blocking<T: Send + 'static>(
-    work: impl FnOnce() -> Result<T, String> + Send + 'static,
-) -> Result<T, String> {
-    tauri::async_runtime::spawn_blocking(work)
-        .await
-        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
