@@ -119,7 +119,7 @@ jobs:
 
             url "https://github.com/$GITHUB_REPOSITORY/releases/download/v#{version}/$APP_NAME-#{version}.zip"
             name "$APP_NAME"
-            desc "Quản lý /etc/hosts và cổng đang dùng trên macOS"
+            desc "Switch /etc/hosts environments and see listening ports"
             homepage "https://github.com/$GITHUB_REPOSITORY"
 
             livecheck do
